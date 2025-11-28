@@ -78,7 +78,7 @@ graph LR
 
 1. **Clone this repository:**
    ```bash
-   git clone <your-repo-url> ~/.config/home-manager
+   git clone https://github.com/pampatzoglou/home-manager.git ~/.config/home-manager
    cd ~/.config/home-manager
    ```
 
