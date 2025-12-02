@@ -72,17 +72,6 @@
     maxCacheTtl = 86400;          # 24 hours  
     defaultCacheTtlSsh = 14400;   # 4 hours for SSH keys
     maxCacheTtlSsh = 28800;       # 8 hours max for SSH
-    
-    # Security enhancements
-    extraConfig = ''
-      # Enhanced security settings
-      grab-keyboard
-      grab-mouse
-      
-      # Logging for debugging (remove in production)
-      log-file /tmp/gpg-agent.log
-      debug-level basic
-    '';
   };
 
   home.activation.killGpgAgent = lib.hm.dag.entryAfter ["writeBoundary"] ''

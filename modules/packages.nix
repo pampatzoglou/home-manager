@@ -7,12 +7,14 @@
     shellcheck
     tree
     btop
+    htop
     fd
     jq
     yq
     dig
     gzip
     wget
+    curl
     tldr
     fzf
     starship
@@ -29,7 +31,6 @@
     helix
     git
     pre-commit
-    act
     devbox
     just
     devenv
@@ -141,6 +142,11 @@
 
     # Encryption and security tools
     yubikey-manager
+    yubikey-personalization
+    yubico-piv-tool
+    diceware
+    pwgen
+
     paperkey
     pgpdump
     gnupg
@@ -160,6 +166,7 @@
     rsync
     syncthing
     tmux
+    cointop
 
     # Development and testing tools
     k6
