@@ -1,7 +1,13 @@
 { config, pkgs, lib, ... }:
 
+let
+  # Helper to conditionally include packages only if available on the current platform
+  optionalPkg = cond: pkg: lib.optionals cond [ pkg ];
+in
+
 {
-  home.packages = with pkgs; [
+  home.packages = with pkgs; 
+    lib.flatten [
     # Core system utilities
     eza
     shellcheck
@@ -39,8 +45,8 @@
     lazygit
     jless
     direnv
-    bitwarden-cli
-    vault
+    # bitwarden-cli
+    # vault
     # ghostty  # Commented out due to platform compatibility issues
 
     # Go development ecosystem
@@ -183,5 +189,12 @@
     # Browsers
     brave
 
-  ];
+    ]
+    ++ lib.optionals (!stdenv.isDarwin) [
+      # Packages unavailable on macOS
+      bitwarden-cli
+    ]
+    ++ lib.optionals stdenv.isDarwin [
+      # macOS-specific packages
+    ];
 }

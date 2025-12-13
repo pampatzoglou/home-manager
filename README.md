@@ -86,9 +86,20 @@ graph LR
    sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install)
    ```
 
+- **Mac specific**: `xcodebuild needs` the full Xcode app (not just the CLI tools). Two options:
+
+1. Install full Xcode (recommended)
+2. Install from the App Store, then run:
+
+   ```bash
+   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+   sudo xcodebuild -license accept
+   ```
+
 ### Installation
 
 Experimental Features: nix-command (and optionally flakes) must be enabled for Home-Manager commands to work.
+
 **Temporary enablement:**
 
    ```bash
