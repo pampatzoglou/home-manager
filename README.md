@@ -3,26 +3,29 @@
 A comprehensive, modular [Home Manager](https://github.com/nix-community/home-manager) configuration that provides a complete, cross-platform development environment.
 This project is a reboot of the original [workstation provisioning](https://github.com/pampatzoglou/provision-workstation).
 
-
 ## ✨ Features
 
 ### 🚀 Complete Development Stack
+
 - **140+ Essential Packages** - Organized by category (development tools, DevOps, security, productivity)
 - **Helix Editor** with LSP support for multiple languages
 - **Modern Development Tools** - Language servers, formatters, and essential dev utilities
 - **Brave Browser** - Privacy-focused web browsing
 
 ### 🔧 Cross-Platform Compatibility
+
 - **Multi-Platform Support** - Apple Silicon, Intel Mac, Linux x64/ARM
 - **Automatic Username Detection** - Zero-config setup across systems
 - **Terminal Integration** - Ghostty with custom theme and keybindings
 
 ### 🛡️ Security & Privacy
+
 - **GPG Configuration** - Enhanced cryptographic settings with YubiKey support
 - **SSH Hardening** - Modern ciphers and security policies
 - **Browser Privacy** - DuckDuckGo default search, ad blocking, privacy-focused extensions
 
 ### 🎨 Beautiful Shell Experience
+
 - **Zsh** with autocompletion, syntax highlighting, and 60+ aliases
 - **Starship Prompt** - Multi-language support with Kubernetes, Docker, Git integration
 - **Modern CLI Tools** - ripgrep, fd, bat, eza, zoxide, and more
@@ -61,6 +64,7 @@ graph LR
 ```
 
 ### 🏗️ **Key Features**
+
 - **🤖 Automatic Username Detection**: No manual configuration needed
 - **🌐 Multi-Architecture**: Apple Silicon, Intel Mac, Linux x64/ARM
 - **📦 Modular Design**: 140+ packages across focused modules  
@@ -72,6 +76,7 @@ graph LR
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - **Universal Compatibility**: Works on any supported architecture
 - [Nix](https://nixos.org/download.html) installed with flakes enabled
 - [Home-Manager](https://github.com/nix-community/home-manager) as a flake
@@ -83,6 +88,15 @@ graph LR
 
 ### Installation
 
+Experimental Features: nix-command (and optionally flakes) must be enabled for Home-Manager commands to work.
+**Temporary enablement:**
+
+   ```bash
+nix-shell -p home-manager --extra-experimental-features 'nix-command flakes' --run "home-manager switch -b backup --impure"
+   ```
+
+**Permanent enablement:** Add the following to `~/.config/nix/nix.conf` (single-user) or `/etc/nix/nix.conf` (system-wide): `experimental-features = nix-command flakes`
+
    ```bash
    nix-shell -p home-manager --run "home-manager switch -b backup --impure"
    ```
@@ -91,6 +105,7 @@ graph LR
 
 **Configure Git:**
    After applying the configuration, set up your Git identity and signing key:
+
    ```bash
    # Set your name and email
    sudo git config --global user.name "Your Name"
@@ -106,14 +121,18 @@ graph LR
    ```
 
 ### Adding Packages
+
 Add new packages to `modules/packages.nix` in the appropriate category:
+
 ```nix
 # Add to the relevant section
 pkgs.your-new-package
 ```
 
 ### Modifying Aliases
+
 Edit shell aliases in `modules/zsh.nix`:
+
 ```nix
 shellAliases = {
   your-alias = "your-command";
@@ -123,23 +142,27 @@ shellAliases = {
 ## 📦 What's Included
 
 ### Development Tools
+
 - **Languages**: Go, Python, Rust with LSPs and formatters
 - **Editors**: Helix with comprehensive language support
 - **Version Control**: Git with enhanced configuration
 - **DevOps**: Kubernetes tools, Terraform, Ansible, Cloud CLIs
 
 ### Security & Privacy
+
 - **Encryption**: GPG with YubiKey support, enhanced algorithms
 - **Security Tools**: Trivy, TruffleHog, Gitleaks, Cosign
 - **Compliance**: Kube-bench, Kyverno, OPA tools
 
 ### Productivity
+
 - **Terminal**: Ghostty with custom theme and keybindings  
 - **Shell**: Zsh with modern alternatives (bat, ripgrep, fd, eza)
 - **Task Management**: TaskWarrior integration
 - **Sync**: Syncthing for file synchronization
 
 ### Infrastructure & Cloud
+
 - **Kubernetes**: kubectl, helm, k9s, lens, argocd, etc...
 - **Cloud Providers**: AWS CLI, Azure CLI, Hcloud
 - **Infrastructure as Code**: Terraform, OpenTofu, Pulumi, etc...
@@ -171,6 +194,7 @@ This configuration is provided as-is for educational and personal use. Feel free
 ---
 
 **⚡ Quick Commands:**
+
 ```bash
 # Check for issues
 nix flake check
