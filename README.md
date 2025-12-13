@@ -76,7 +76,6 @@ graph LR
 - [Nix](https://nixos.org/download.html) installed with flakes enabled
 - [Home-Manager](https://github.com/nix-community/home-manager) as a flake
 
-**Requirement:**
    ```bash
    git clone https://github.com/pampatzoglou/home-manager.git ~/.config/home-manager
    sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install)
@@ -84,7 +83,6 @@ graph LR
 
 ### Installation
 
-**Setup:**
    ```bash
    nix-shell -p home-manager --run "home-manager switch -b backup --impure"
    ```
