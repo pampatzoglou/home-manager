@@ -39,6 +39,7 @@ in
     pre-commit
     devbox
     just
+    go-task
     devenv
     python3
     cobra-cli
