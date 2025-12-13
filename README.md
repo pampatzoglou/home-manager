@@ -1,6 +1,8 @@
 # 🏠 Modular Home-Manager Configuration
 
-A comprehensive, modular [Home-Manager](https://github.com/nix-community/home-manager) configuration for macOS that provides a complete development environment with cross-platform compatibility.
+A comprehensive, modular [Home Manager](https://github.com/nix-community/home-manager) configuration that provides a complete, cross-platform development environment.
+This project is a reboot of the original [workstation provisioning](https://github.com/pampatzoglou/provision-workstation).
+
 
 ## ✨ Features
 
