@@ -46,6 +46,9 @@ in
     lazygit
     jless
     direnv
+    buildkit
+    buildkite-cli
+    
     # bitwarden-cli
     # vault
     # ghostty  # Commented out due to platform compatibility issues
@@ -67,7 +70,13 @@ in
     shfmt
     yamlfmt
     dockerfile-language-server
+    docker-compose-language-service
+    jsonnet-language-server
+    bash-language-server
+    helm-ls
     gopls
+    systemd-language-server
+    tofu-ls
     rust-analyzer
     nil
     taplo
