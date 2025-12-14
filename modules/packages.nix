@@ -178,7 +178,7 @@ in
     # commitizen
 
     # Personal productivity tools
-    taskwarrior3
+    # taskwarrior3
     rsync
     syncthing
     tmux
