@@ -119,13 +119,13 @@ nix-shell -p home-manager --extra-experimental-features 'nix-command flakes' --r
 
    ```bash
    # Set your name and email
-   sudo git config --global user.name "Your Name"
-   sudo git config --global user.email "your.email@example.com"
+   git config --global user.name "Your Name"
+   git config --global user.email "your.email@example.com"
    
    # Set up SSH signing (recommended)
-   sudo git config --global user.signingKeyPath "~/.ssh/id_ed25519"
-   sudo git config --global commit.gpgsign true
-   sudo git config --global gpg.format ssh
+   git config --global user.signingKeyPath "~/.ssh/id_ed25519"
+   git config --global commit.gpgsign true
+   git config --global gpg.format ssh
    
    # Verify configuration
    git config --global --list | grep user
