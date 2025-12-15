@@ -10,7 +10,6 @@ in
     lib.flatten [
     # Core system utilities
     eza
-    shellcheck
     tree
     btop
     htop
@@ -62,29 +61,37 @@ in
     entr
 
     # Language servers and formatters
-    terraform-ls
-    bash-language-server
-    yaml-language-server
-    # vscode-langservers-extracted
-    pyright
-    shfmt
-    yamlfmt
-    dockerfile-language-server
-    docker-compose-language-service
-    jsonnet-language-server
-    bash-language-server
+    # Kubernetes / Helm
     helm-ls
+    # kube-lsp
+    yaml-language-server
+    # Terraform / AWS infra
+    terraform-ls
+
+    # Core languages
+    bash-language-server
+    pyright
     gopls
-    systemd-language-server
-    tofu-ls
     rust-analyzer
-    nil
+
+    # Data / configs
+    #json-language-server
     taplo
+    nil
+    # Docs & system
+    marksman
+    systemd-language-server
+
+    # Linters / diagnostics
+    tflint
+    shellcheck
+    yamllint
 
     # Kubernetes ecosystem tools
     kubectl
     kubelogin-oidc
     kubernetes-helm
+    kubernetes-helmPlugins.helm-unittest
     kubectl-cnpg
     kubectl-linstor
     argocd
@@ -98,6 +105,11 @@ in
     kubeshark
     tilt
     lens
+    kubent
+    kubesec
+    testkube
+    kuttl
+    kyverno-chainsaw
 
     # Infrastructure as Code tools
     terraform
@@ -125,7 +137,6 @@ in
     kubescape
     terrascan
     hadolint
-    tflint
     kics
     checkov
     tfsec
@@ -145,7 +156,6 @@ in
     promql-cli
     atac
     termshark
-    yamllint
 
     # Database and messaging tools
     postgresql
@@ -186,8 +196,6 @@ in
 
     # Development and testing tools
     k6
-    kuttl
-    kyverno-chainsaw
     sonobuoy
     postman
     newman

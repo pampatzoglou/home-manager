@@ -1,5 +1,3 @@
-{ config, pkgs, lib, ... }:
-
 {
   programs.helix = {
     enable = true;
@@ -22,10 +20,6 @@
           select = "underline";
         };
 
-        soft-wrap = {
-          enable = false;
-        };
-
         lsp = {
           display-messages = true;
           display-inlay-hints = true;
@@ -33,100 +27,119 @@
       };
     };
 
-    languages = {
-      language = [
+    languages.language = [
+
+      # Terraform / AWS
       {
         name = "terraform";
         language-servers = [ "terraform-ls" ];
         auto-format = true;
         formatter.command = "terraform";
-        formatter.args = [ "fmt" "-" ];
-        indent = {
-          tab-width = 2;
-          unit = "  ";
-        };
+        formatter.args = [ "fmt" "-no-color" "-" ];
+        indent = { tab-width = 2; unit = "  "; };
       }
+
+      # Bash
       {
         name = "bash";
         language-servers = [ "bash-language-server" ];
         auto-format = true;
         formatter.command = "shfmt";
         formatter.args = [ "-i" "2" "-bn" "-ci" "-sr" ];
-        indent = {
-          tab-width = 2;
-          unit = "  ";
-        };
+        indent = { tab-width = 2; unit = "  "; };
       }
+
+      # Go
       {
         name = "go";
         language-servers = [ "gopls" ];
         auto-format = true;
         formatter.command = "gofmt";
-        indent = {
-          tab-width = 4;
-          unit = "\t";
-        };
+        indent = { tab-width = 4; unit = "\t"; };
       }
+
+      # Rust
       {
         name = "rust";
         language-servers = [ "rust-analyzer" ];
         auto-format = true;
         formatter.command = "rustfmt";
-        indent = {
-          tab-width = 4;
-          unit = "    ";
-        };
+        indent = { tab-width = 4; unit = "    "; };
       }
+
+      # Nix / Home Manager
       {
         name = "nix";
         language-servers = [ "nil" ];
         auto-format = true;
         formatter.command = "nixfmt";
-        indent = {
-          tab-width = 2;
-          unit = "  ";
-        };
+        indent = { tab-width = 2; unit = "  "; };
       }
+
+      # TOML
       {
         name = "toml";
         language-servers = [ "taplo" ];
         auto-format = true;
-        indent = {
-          tab-width = 2;
-          unit = "  ";
-        };
+        indent = { tab-width = 2; unit = "  "; };
       }
+
+      # Generic YAML (CI/CD, config files)
+      {
+        name = "yaml";
+        language-servers = [ "yaml-language-server" ];
+        auto-format = true;
+        indent = { tab-width = 2; unit = "  "; };
+      }
+
+      # Kubernetes YAML (EKS manifests)
       {
         name = "kubernetes";
-        scope = "yaml";
-        file-types = [ "*.yaml" "*.yml" ];
-        language-servers = [ "yaml-language-server" "kubernetes-lsp" ];
-        comment-token = "#";
+        scope = "source.yaml";
+        roots = [ "kustomization.yaml" "Chart.yaml" ];
+        language-servers = [ "kube-lsp" "yaml-language-server" ];
+        file-types = [ "yaml" "yml" ];
         auto-format = true;
-        indent = {
-          tab-width = 2;
-          unit = "  ";
-        };
+        indent = { tab-width = 2; unit = "  "; };
       }
+
+      # Helm
+      {
+        name = "helm";
+        scope = "source.yaml";
+        roots = [ "Chart.yaml" ];
+        file-types = [ "yaml" "tpl" ];
+        language-servers = [ "helm-ls" ];
+        auto-format = true;
+        indent = { tab-width = 2; unit = "  "; };
+      }
+
+      # JSON (AWS IAM / CloudFormation)
       {
         name = "json";
-        language-servers = [ "vscode-langservers-extracted" ];
+        language-servers = [ "json-language-server" ];
         auto-format = true;
-        indent = {
-          tab-width = 2;
-          unit = "  ";
-        };
+        indent = { tab-width = 2; unit = "  "; };
       }
+
+      # Markdown (runbooks, ADRs)
       {
         name = "markdown";
-        language-servers = [ "vscode-langservers-extracted" ];
-        auto-format = true;
-        indent = {
-          tab-width = 2;
-          unit = "  ";
-        };
+        language-servers = [ "marksman" ];
+        auto-format = false;
+        indent = { tab-width = 2; unit = "  "; };
       }
-      ];
-    };
+
+      # Rego (OPA / Conftest / Gatekeeper)
+      {
+        name = "rego";
+        scope = "source.rego";
+        file-types = [ "rego" ];
+        language-servers = [ "rego-language-server" ];
+        auto-format = true;
+        indent = { tab-width = 2; unit = "  "; };
+      }
+
+    ];
   };
 }

@@ -29,12 +29,9 @@ graph TB
         aliases & functions`"]
         dev["`**Development**
         helix.nix
-        vscode.nix
         kubernetes.nix`"]
         sys["`**System Integration**
-        ghostty.nix
-        karabiner.nix
-        browsers.nix`"]
+        ghostty.nix`"]
     end
     
     subgraph "🎨 User Experience"
@@ -376,24 +373,28 @@ pie title Configuration Distribution
 ## 🔧 Architecture Benefits
 
 ### ✨ **Modularity**
+
 - **Focused Modules**: Each module handles a specific domain
 - **Easy Customization**: Enable/disable features independently
 - **Clean Separation**: Clear boundaries between components
 - **Testing Isolation**: Test modules independently
 
 ### 🔄 **Portability**
+
 - **Auto-Detection**: No manual username configuration
 - **Cross-Platform**: Works on macOS, Linux (x64, ARM)
 - **Zero Config**: Clone and run with minimal setup
 - **Reproducible**: Identical environments across machines
 
 ### 🚀 **Maintainability**
+
 - **Version Control**: Precise tracking of changes
 - **Documentation**: Self-documenting configuration
 - **Debugging**: Easy to isolate and fix issues
 - **Updates**: Granular package and module updates
 
 ### 🏗️ **Scalability**
+
 - **Extensible**: Add modules without affecting existing setup
 - **Multi-User**: Easy to fork and customize
 - **Multi-System**: Support different architectures seamlessly
