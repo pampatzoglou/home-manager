@@ -115,6 +115,14 @@
     };
 
     initContent = ''
+      eval "$(ssh-agent -s)" >/dev/null
+      chmod 600 ~/.ssh/id_ed25519_sk_rk_* 2>/dev/null
+      for key in ~/.ssh/id_ed25519_sk_rk_*; do
+          if [[ "$key" != *.pub ]]; then
+              ssh-add "$key" 2>/dev/null
+          fi
+      done
+
       # Custom commit function
       _cc() {
         echo "Type (feat, fix, chore, etc.):"

@@ -167,9 +167,8 @@ shellAliases = {
 
 ### Productivity
 
-- **Terminal**: Ghostty with custom theme and keybindings  
+- **Terminal**: Ghostty with custom theme and keybindings
 - **Shell**: Zsh with modern alternatives (bat, ripgrep, fd, eza)
-- **Task Management**: TaskWarrior integration
 - **Sync**: Syncthing for file synchronization
 
 ### Infrastructure & Cloud
@@ -217,3 +216,46 @@ nix flake update
 home-manager generations
 home-manager switch --flake . --switch-generation <id>
 ```
+
+## 🔐 FIDO Key Setup
+
+This configuration assumes you have a YubiKey or compatible FIDO security key for enhanced SSH authentication. The setup uses FIDO keys for passwordless SSH access to personal, Git, and work accounts.
+
+### Assumptions
+
+- You have a YubiKey 5 or later with FIDO2 support
+- YubiKey Manager (`ykman`) is installed
+- You want resident keys for portability across devices
+
+### Key Generation Examples
+
+Generate resident FIDO keys for different purposes:
+
+```bash
+# Reset FIDO application (CAUTION: deletes all FIDO credentials)
+ykman fido reset
+
+# Change PIN for security
+ykman fido access change-pin
+
+# Personal SSH key (resident, requires touch)
+ssh-keygen -t ed25519-sk -O resident -O application=ssh:personal -O user=<username> -C "<email>"
+
+# Git signing key (no touch required for automation)
+ssh-keygen -t ed25519-sk -O no-touch-required -O application=ssh:git  -O user=<username> -C "<email>"
+
+# List all credentials on YubiKey
+ykman fido credentials list
+
+# Load resident keys into SSH agent
+ssh-keygen -K
+```
+
+### How They're Used
+
+- **Personal Keys**: Used for general SSH access and Git operations
+- **Git Keys**: Dedicated for commit signing (no-touch for CI/CD compatibility)
+- **Work Keys**: Isolated for corporate access with touch requirement for security
+- **Resident Keys**: Stored on YubiKey for use across multiple devices
+
+The SSH configuration in `modules/security.nix` is pre-configured to use these keys with appropriate security policies.

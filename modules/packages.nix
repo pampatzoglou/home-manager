@@ -31,6 +31,12 @@ in
     dust
     bottom
     procs
+    openssh
+    libfido2
+    keychain
+    yubikey-manager
+    yubikey-personalization
+    yubico-piv-tool
 
     # Development tools and editors
     helix
@@ -167,9 +173,6 @@ in
     kafkactl
 
     # Encryption and security tools
-    yubikey-manager
-    yubikey-personalization
-    yubico-piv-tool
     diceware
     pwgen
 

@@ -64,14 +64,20 @@
 
   services.gpg-agent = {
     enable = true;
-    enableSshSupport = true;
+    enableSshSupport = false;
     pinentry.package = pkgs.pinentry-curses;
-    
+
     # Enhanced caching configuration
     defaultCacheTtl = 28800;      # 8 hours
-    maxCacheTtl = 86400;          # 24 hours  
+    maxCacheTtl = 86400;          # 24 hours
     defaultCacheTtlSsh = 14400;   # 4 hours for SSH keys
     maxCacheTtlSsh = 28800;       # 8 hours max for SSH
+  };
+
+  # Disable home-manager ssh-agent to use macOS built-in agent
+  # which has better support for hardware security keys like YubiKey
+  services.ssh-agent = {
+    enable = false;
   };
 
   home.activation.killGpgAgent = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -96,41 +102,25 @@
     fi
   '';
 
-  programs.ssh = {
-    enable = true;
+programs.ssh = {
+  enable = true;
+  enableDefaultConfig = false;
 
-    # Disable deprecated defaults
-    enableDefaultConfig = false;
+  matchBlocks = {
+    "*" = {
+      addKeysToAgent = "no";
+      compression = true;
+      controlMaster = "no";
+      forwardAgent = false;
+      serverAliveInterval = 60;
+      serverAliveCountMax = 3;
 
-    # Minimal valid match block
-    matchBlocks = {
-      "*" = {
-        addKeysToAgent = "yes";
-        compression = true;
-        controlMaster = "auto";
-        controlPath = "${config.home.homeDirectory}/.ssh/master-%r@%n:%p";
-        controlPersist = "10m";
+      extraOptions = {
+        TCPKeepAlive = "yes";
       };
     };
-
-    extraConfig = ''
-      # Default host-level settings
-      Host *
-        ServerAliveInterval 60
-        ServerAliveCountMax 3
-        HashKnownHosts yes
-        StrictHostKeyChecking ask
-        VerifyHostKeyDNS ask
-        TCPKeepAlive yes
-
-      # Hardening
-        Protocol 2
-        Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
-        MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha2-512
-        KexAlgorithms curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
-        HostKeyAlgorithms ssh-ed25519-cert-v01@openssh.com,ssh-rsa-cert-v01@openssh.com,ssh-ed25519,ssh-rsa
-    '';
   };
+};
 
   home.activation.fixSshPerms = lib.hm.dag.entryAfter ["writeBoundary"] ''
     if [ -d "$HOME/.ssh" ]; then

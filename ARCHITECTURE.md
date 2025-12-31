@@ -138,7 +138,6 @@ graph LR
         • Universal settings`"]
         mac["`**mac.nix**
         • macOS-specific
-        • Karabiner integration
         • Platform features`"]
     end
     
@@ -162,10 +161,6 @@ graph LR
         • LSP configuration
         • Multi-language support
         • Editor optimizations`"]
-        vscode["`**vscode.nix**
-        • Extension management
-        • Nix integration
-        • Development profiles`"]
         k8s["`**kubernetes.nix**
         • Kubectl plugins
         • Cluster management
@@ -188,10 +183,6 @@ graph LR
         • Terminal theming
         • Font configuration
         • Key bindings`"]
-        karabiner["`**karabiner.nix**
-        • Cross-platform keys
-        • macOS integration
-        • Productivity shortcuts`"]
     end
     
     flake --> base
@@ -200,17 +191,14 @@ graph LR
     base --> security
     base --> git
     base --> helix
-    base --> vscode
     base --> k8s
     base --> zsh
     base --> starship
     base --> ghostty
-    mac --> karabiner
-    
+
     packages -.-> security
     security -.-> git
     zsh -.-> starship
-    vscode -.-> helix
 ```
 
 ## 🏗️ System Architecture Layers
@@ -270,7 +258,6 @@ graph LR
         • Cross-platform
         • Minimal setup`"]
         mac_config["`**Mac Config**
-        • Base + Karabiner
         • macOS optimized
         • Full features`"]
     end
@@ -300,7 +287,7 @@ graph TD
     security --> git["`🔧 **git.nix**
     Version control`"]
     security --> development["`💻 **Development**
-    VS Code, Helix, K8s`"]
+    Helix, K8s`"]
     
     packages --> shell_base["`🐚 **Shell Foundation**
     Zsh configuration`"]
@@ -314,10 +301,6 @@ graph TD
         direction LR
         ghostty["`**ghostty.nix**
         Terminal`"]
-        karabiner["`**karabiner.nix**
-        Input mapping`"]
-        vscode["`**vscode.nix**
-        IDE`"]
         helix["`**helix.nix**
         Editor`"]
         kubernetes["`**kubernetes.nix**
