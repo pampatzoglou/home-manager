@@ -49,5 +49,6 @@ in
     ./modules/kubernetes.nix
     ./modules/kitty.nix
     ./modules/llm.nix
+    ./modules/mcp.nix
   ];
 }
