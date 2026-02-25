@@ -1,0 +1,28 @@
+# Pre-commit hooks for Home-Manager configuration
+# Install: nix-shell -p pre-commit --run "pre-commit install"
+# Run manually: nix-shell -p pre-commit --run "pre-commit run --all-files"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/nix-community/nixpkgs-fmt
+    rev: v1.3.0
+    hooks:
+      - id: nixpkgs-fmt
+
+  - repo: local
+    hooks:
+      - id: deadnix
+        name: deadnix
+        entry: nix run nixpkgs#deadnix -- --fail
+        language: system
+        files: \.nix$
+        pass_filenames: true

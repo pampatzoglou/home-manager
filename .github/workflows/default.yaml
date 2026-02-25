@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch: # Allow manual trigger
+  schedule:
+    - cron: "0 0 * * 0" # Run weekly on Sunday at midnight UTC
+
+jobs:
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check LICENSE file exists
+        run: |
+          if [ ! -f LICENSE ]; then
+            echo "❌ LICENSE file not found"
+            exit 1
+          fi
+          echo "✅ LICENSE file exists"
+
+      - name: Validate LICENSE content
+        run: |
+          if [ ! -s LICENSE ]; then
+            echo "❌ LICENSE file is empty"
+            exit 1
+          fi
+          echo "✅ LICENSE file is valid"
+
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v13
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v7
+
+      - name: Check Nix formatting
+        run: |
+          nix run nixpkgs#nixpkgs-fmt -- --check .
+
+      - name: Check for dead code
+        run: |
+          nix run nixpkgs#deadnix -- --fail .
