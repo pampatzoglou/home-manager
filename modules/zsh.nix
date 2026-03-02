@@ -122,8 +122,11 @@
     };
 
     initContent = ''
-      # SSH agent and keys are managed by macOS launchd + brew openssh
-      # AddKeysToAgent=yes in SSH config will auto-load keys as needed
+      # Auto-load SSH keys
+      if [[ -z "$SSH_AUTH_SOCK" || ! -S "$SSH_AUTH_SOCK" ]]; then
+          eval "$(ssh-agent -s)" >/dev/null
+          ssh-add
+      fi
 
       # Custom commit function
       _cc() {

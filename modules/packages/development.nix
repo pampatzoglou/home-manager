@@ -44,10 +44,16 @@
     # Data / configs
     taplo
     nil
+    nodePackages.vscode-langservers-extracted  # Provides JSON, HTML, CSS, ESLint LSPs
 
     # Docs & system
     marksman
     systemd-language-server
+
+    # Formatters
+    shfmt           # Shell/Bash formatter
+    black           # Python formatter
+    nixfmt-classic  # Nix formatter
 
     # Linters / diagnostics
     tflint
