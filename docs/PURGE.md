@@ -71,7 +71,7 @@ done
 sudo dscl . -delete /Groups/nixbld 2>/dev/null
 ```
 
-Expected UIDs: `_nixbld1` = 351 through `_nixbld32` = 382  
+Expected UIDs: `_nixbld1` = 351 through `_nixbld32` = 382
 Expected GID: `nixbld` = 350
 
 ---

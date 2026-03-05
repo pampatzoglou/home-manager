@@ -245,7 +245,7 @@
         # Markdown (Documentation, runbooks, ADRs)
         Markdown = {
           tab_size = 2;
-          format_on_save = "off";  # Preserve manual formatting
+          format_on_save = "off"; # Preserve manual formatting
           language_servers = [ "marksman" ];
         };
 

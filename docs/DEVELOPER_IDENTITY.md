@@ -4,7 +4,7 @@ Home-manager manages `~/.config/git/ignore` (global gitignore). All other git co
 
 ### Global Configuration
 
-```ini 
+```ini
 # ~/.gitconfig
 [user]
         name = <your-name>

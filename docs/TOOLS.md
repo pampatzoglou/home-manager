@@ -739,7 +739,7 @@ This document explains the language server setup for Zed editor, including handl
 The edge case of Helm templating vs regular YAML is handled through:
 
 1. **Directory Detection**: When `Chart.yaml` exists in a directory, Zed automatically uses `helm-ls` for that context
-2. **File Extensions**: 
+2. **File Extensions**:
    - `.tpl` files always use `helm-ls`
    - `.yaml` files use `helm-ls` when in a Helm chart directory
    - `.yaml` files use `yaml-language-server` in non-Helm contexts
