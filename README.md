@@ -230,4 +230,10 @@ Customizations are stored in the [DEVELOPER IDENTITY](./docs/DEVELOPER_IDENTITY.
 
 ## 🗑️ Cleanup & Maintenance
 
+### 🍎 macOS Users
+
+If you experience issues after macOS system updates (broken `nix-shell`, daemon errors, SDK problems), see the [macOS Recovery Guide](./docs/MACOS_RECOVERY.md) for comprehensive troubleshooting steps.
+
+### 🗑️ Complete Removal
+
 For instructions on removing nix and resetting your system, see [PURGE.md](./docs/PURGE.md).
