@@ -651,8 +651,8 @@ hyperfine --warmup 3 'terraform plan'
 - **Configuration**: See individual modules in `modules/` directory
 - **Aliases**: Full list in `modules/zsh.nix`
 - **LSPs**: Configuration in `modules/helix.nix`
-- **Architecture**: See `ARCHITECTURE.md`
-- **Main README**: See `README.md`
+- **Architecture**: See `./ARCHITECTURE.md`
+- **Main README**: See `../README.md`
 
 ---
 

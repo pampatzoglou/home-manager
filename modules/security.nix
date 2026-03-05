@@ -3,7 +3,7 @@
 {
   # Security Configuration
   # Includes SSH hardening and FIDO2/YubiKey support
-  # Manual setup required - see DEVELOPER_IDENTITY.md for FIDO key generation
+  # Manual setup required - see docs/DEVELOPER_IDENTITY.md for FIDO key generation
 
   programs.direnv = {
     enable = true;
@@ -12,9 +12,7 @@
   };
 
   # SSH agent is managed in zsh.nix for FIDO2 Yubikey support
-  services.ssh-agent = {
-    enable = false;
-  };
+  services.ssh-agent = { enable = false; };
 
   programs.ssh = {
     enable = true;
@@ -30,9 +28,7 @@
         serverAliveInterval = 60;
         serverAliveCountMax = 3;
 
-        extraOptions = {
-          TCPKeepAlive = "yes";
-        };
+        extraOptions = { TCPKeepAlive = "yes"; };
       };
     };
   };
@@ -70,7 +66,7 @@
     echo "  ykman fido credentials list  # List all credentials on YubiKey"
     echo "  ssh-add -K                   # Load resident keys into SSH agent"
     echo ""
-    echo "📚 See DEVELOPER_IDENTITY.md for complete setup guide"
+    echo "📚 See docs/DEVELOPER_IDENTITY.md for complete setup guide"
     echo ""
   '';
 }

@@ -73,8 +73,8 @@ graph LR
 - **🔒 Security-First**: Hardened GPG, SSH, and browser configs
 - **🔄 Zero-Config Setup**: Clone and run with `--impure` flag
 
-> 📖 **Detailed Architecture**: See [ARCHITECTURE.md](./ARCHITECTURE.md) for comprehensive diagrams and technical details
-> 🛠️ **Tools Reference**: See [TOOLS.md](./TOOLS.md) for complete tool documentation and usage examples
+> 📖 **Detailed Architecture**: See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for comprehensive diagrams and technical details
+> 🛠️ **Tools Reference**: See [TOOLS.md](./docs/TOOLS.md) for complete tool documentation and usage examples
 
 ## 🚀 Quick Start
 
@@ -103,17 +103,29 @@ graph LR
 
 Experimental Features: nix-command (and optionally flakes) must be enabled for Home-Manager commands to work.
 
-**Temporary enablement:**
+#### Option 1: Temporary Enablement (Quick Start)
 
-   ```bash
-   nix-shell -p home-manager --extra-experimental-features 'nix-command flakes' --run "home-manager switch -b backup --impure"
-   ```
+For a one-time installation without modifying system configuration:
 
-**Permanent enablement:** Add the following to `~/.config/nix/nix.conf` (single-user) or `/etc/nix/nix.conf` (system-wide): `experimental-features = nix-command flakes`
+```bash
+nix-shell -p home-manager --extra-experimental-features 'nix-command flakes' --run "home-manager switch -b backup --impure"
+```
 
-   ```bash
-   nix-shell -p home-manager --run "home-manager switch -b backup --impure"
-   ```
+---
+
+#### Option 2: Permanent Enablement (Recommended)
+
+Add the following to `~/.config/nix/nix.conf` (single-user) or `/etc/nix/nix.conf` (system-wide):
+
+```nix
+experimental-features = nix-command flakes
+```
+
+Then run the installation:
+
+```bash
+nix-shell -p home-manager --run "home-manager switch -b backup --impure"
+```
 
 ### 🎛️ Customization
 
@@ -212,4 +224,10 @@ home-manager switch --flake . --switch-generation <id>
 ```
 
 # 📝 DEVELOPER IDENTIFICATION
-Customizations are stored in the [DEVELOPER IDENTITY](./DEVELOPER_IDENTITY.md).
+Customizations are stored in the [DEVELOPER IDENTITY](./docs/DEVELOPER_IDENTITY.md).
+
+---
+
+## 🗑️ Cleanup & Maintenance
+
+For instructions on removing nix and resetting your system, see [PURGE.md](./docs/PURGE.md).
