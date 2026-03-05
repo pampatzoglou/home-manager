@@ -70,7 +70,7 @@ sudo launchctl list | grep nix-daemon
 
 **⏱️ Time Estimate: 2-3 minutes**
 
-macOS updates sometimes overwrite `/etc/zprofile` or `/etc/zshrc`. 
+macOS updates sometimes overwrite `/etc/zprofile` or `/etc/zshrc`.
 
 **For login shells (default on macOS):**
 
@@ -418,7 +418,7 @@ Here's a quick reference for common errors and which section to check:
 
 **⏱️ Time Estimate: 30-60 minutes**
 
-If everything fails and you want to start fresh, see [PURGE.md](./PURGE.md) for complete uninstallation and reinstallation instructions. 
+If everything fails and you want to start fresh, see [PURGE.md](./PURGE.md) for complete uninstallation and reinstallation instructions.
 
 The beauty of declarative configuration is that you will end up with the exact same installation after following the purge and reinstall process—all your packages, settings, and configurations will be restored.
 
