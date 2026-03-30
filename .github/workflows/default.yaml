@@ -26,6 +26,11 @@ jobs:
       - name: Setup Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@v7
 
+      - name: Install Task
+        uses: go-task/setup-task@v1
+
+      - name: Run CI checks
+        run: task check
+
       - name: Run pre-commit checks
-        run: |
-          nix-shell -p pre-commit --run "pre-commit run --all-files"
+        run: task pre-commit:run

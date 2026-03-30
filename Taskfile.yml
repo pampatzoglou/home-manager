@@ -1,8 +1,8 @@
-version: '3'
+version: "3"
 
 vars:
   CONFIG_DIR: '{{default "~/.config/home-manager" .CONFIG_DIR}}'
-  FLAKE_FLAGS: '--impure'
+  FLAKE_FLAGS: "--impure"
 
 tasks:
   default:
@@ -213,7 +213,7 @@ tasks:
     silent: false
 
   ci:
-    desc: "Run full CI checks locally (same as GitHub Actions)"
+    desc: "Run full CI checks locally (same as check)"
     cmds:
       - task: check
       - echo ""
@@ -225,40 +225,40 @@ tasks:
     cmds:
       - |
         cat << 'HELP'
-        
+
         ╔════════════════════════════════════════════╗
         ║  Home-Manager Task Runner Help            ║
         ╚════════════════════════════════════════════╝
-        
+
         📋 Common Workflows:
-        
+
         Before committing:
           task check              # Run all checks
           task check:quick        # Quick validation
           task fix                # Auto-fix issues
-          
+
         Development:
           task switch             # Apply configuration
           task build              # Build without switching
           task update             # Update dependencies
-          
+
         Maintenance:
           task gc                 # Clean old generations
           task list               # Show generations
           task rollback           # Undo last change
-          
+
         Debugging:
           task switch:trace       # Detailed errors
           task doctor             # Run diagnostics
           task clean              # Clear caches
-          
+
         CI/CD:
           task ci                 # Run full CI locally
           task git:check          # Review changes
-          
+
         📖 View all tasks:
           task --list
           task --list-all         # Include dependencies
-        
+
         HELP
     silent: true

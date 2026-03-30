@@ -16,7 +16,7 @@ If `nix-shell` or other Nix commands are not found after a macOS update, follow 
 ls /nix
 ```
 
-If you see directories like `store`, `var`, etc., Nix is still installed.  
+If you see directories like `store`, `var`, etc., Nix is still installed.
 If `/nix` is missing → you'll need to reinstall (skip to Section 5).
 
 **🔍 Step 2: Try loading Nix manually**

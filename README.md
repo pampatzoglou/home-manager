@@ -158,12 +158,6 @@ shellAliases = {
 - **Version Control**: Git with enhanced configuration
 - **DevOps**: Kubernetes tools, Terraform, Ansible, Cloud CLIs
 
-### Security & Privacy
-
-- **Encryption**: GPG with YubiKey support, enhanced algorithms
-- **Security Tools**: Trivy, TruffleHog, Gitleaks, Cosign
-- **Compliance**: Kube-bench, Kyverno, OPA tools
-
 ### Productivity
 
 - **Terminal**: Kitty with custom theme and keybindings
