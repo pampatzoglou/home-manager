@@ -9,7 +9,7 @@ This project is a reboot of the original [workstation provisioning](https://gith
 
 ### 🚀 Complete Development Stack
 
-- **140+ Essential Packages** - Organized in modular categories (development, DevOps, security, productivity)
+- **147 Essential Packages** - Organized in modular categories (development, DevOps, security, productivity)
 - **Helix & Zed Editors** with LSP support for multiple languages
 - **Modern Development Tools** - Language servers, formatters, and essential dev utilities
 - **Brave Browser** - Privacy-focused web browsing
@@ -62,14 +62,13 @@ graph LR
 
 ### 🏗️ **Key Features**
 
-- **🤖 Automatic Username Detection**: No manual configuration needed
 - **🌐 Multi-Architecture**: Apple Silicon, Intel Mac, Linux x64/ARM
-- **📦 Modular Design**: 140+ packages across focused modules
-- **🔒 Security-First**: Hardened GPG, SSH, and browser configs
+- **📦 Modular Design**: 147 packages across focused modules
 - **🔄 Zero-Config Setup**: Clone and run with `--impure` flag
 
 > 📖 **Detailed Architecture**: See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for comprehensive diagrams and technical details
 > 🛠️ **Tools Reference**: See [TOOLS.md](./docs/TOOLS.md) for complete tool documentation and usage examples
+> 📋 **Task Automation**: See [TASKS.md](./docs/TASKS.md) for common tasks and automation workflows
 
 ## 🚀 Quick Start
 
@@ -167,9 +166,11 @@ shellAliases = {
 
 ## 🔧 Module Breakdown
 
+This configuration consists of **11 active modules**:
+
 | Module | Purpose | Key Features |
 |--------|---------|--------------|
-| `packages.nix` | Package orchestration | Imports 7 category-specific package modules |
+| `packages.nix` | Package orchestration | Imports 7 category-specific package modules (147 total packages) |
 | `packages/core.nix` | Core utilities | System tools, modern CLI replacements |
 | `packages/development.nix` | Development tools | Editors, LSPs, formatters, testing tools |
 | `packages/kubernetes.nix` | Kubernetes ecosystem | kubectl, helm, k9s, and 20+ K8s tools |

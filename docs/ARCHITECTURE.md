@@ -20,18 +20,20 @@ graph TB
     subgraph "📦 Module Ecosystem"
         direction TB
         core["`**Core Modules**
-        packages.nix
+        packages.nix (7 categories)
         security.nix
-        git.nix`"]
+        git.nix
+        gc.nix`"]
         shell["`**Shell Environment**
         zsh.nix
         starship.nix
         aliases & functions`"]
         dev["`**Development**
         helix.nix
+        zed.nix
         kubernetes.nix`"]
         sys["`**System Integration**
-        ghostty.nix`"]
+        kitty.nix`"]
     end
 
     subgraph "🎨 User Experience"
@@ -40,9 +42,9 @@ graph TB
         ~/.gitconfig
         ~/.config/*`"]
         apps["`**Applications**
-        VS Code
-        Terminal
-        Browser`"]
+        Helix • Zed
+        Kitty • Brave
+        Git CLI Tools`"]
     end
 
     flake --> base
@@ -131,19 +133,17 @@ graph LR
         flake["`**flake.nix**
         • Multi-architecture
         • Auto username detection
-        • Empty commonArgs`"]
+        • System detection`"]
         base["`**base.nix**
         • Cross-platform
         • Core modules
-        • Universal settings`"]
-        mac["`**mac.nix**
-        • macOS-specific
-        • Platform features`"]
+        • Universal settings
+        • 11 active modules`"]
     end
 
     subgraph "🔧 Core Infrastructure"
         packages["`**packages.nix**
-        • 140+ tools
+        • 147 tools
         • Categorized by function
         • Development stack`"]
         security["`**security.nix**
@@ -161,6 +161,10 @@ graph LR
         • LSP configuration
         • Multi-language support
         • Editor optimizations`"]
+        zed["`**zed.nix**
+        • Modern editor
+        • LSP support
+        • Format on save`"]
         k8s["`**kubernetes.nix**
         • Kubectl plugins
         • Cluster management
@@ -179,26 +183,29 @@ graph LR
     end
 
     subgraph "🎨 User Interface"
-        ghostty["`**ghostty.nix**
+        kitty["`**kitty.nix**
         • Terminal theming
         • Font configuration
         • Key bindings`"]
     end
 
     flake --> base
-    flake --> mac
     base --> packages
     base --> security
     base --> git
     base --> helix
+    base --> zed
     base --> k8s
     base --> zsh
     base --> starship
-    base --> ghostty
+    base --> kitty
 
     packages -.-> security
     security -.-> git
     zsh -.-> starship
+    helix -.-> packages
+    zed -.-> packages
+    kitty -.-> packages
 ```
 
 ## 🏗️ System Architecture Layers
@@ -206,7 +213,7 @@ graph LR
 ```mermaid
 graph TB
     subgraph L4["`🎨 **Layer 4: User Applications**`"]
-        apps["`VS Code • Helix • Ghostty • Browsers • Git`"]
+        apps["`Helix • Zed • Kitty • Brave • Git Tools`"]
     end
 
     subgraph L3["`🐚 **Layer 3: Shell Environment**`"]
@@ -218,7 +225,7 @@ graph TB
     end
 
     subgraph L1["`📦 **Layer 1: Package Management**`"]
-        packages["`140+ Tools • Development Stack • System Utilities`"]
+        packages["`147 Tools • Development Stack • System Utilities`"]
     end
 
     subgraph L0["`🔧 **Layer 0: Foundation**`"]
@@ -239,36 +246,33 @@ graph LR
         direction TB
         arm_mac["`**Apple Silicon**
         aarch64-darwin
-        .#mac / .#base`"]
+        Auto-detected`"]
         intel_mac["`**Intel Mac**
         x86_64-darwin
-        .#mac-intel / .#base-intel`"]
+        Auto-detected`"]
         linux_x64["`**Linux x64**
         x86_64-linux
-        .#base-linux`"]
+        Auto-detected`"]
         linux_arm["`**Linux ARM**
         aarch64-linux
-        .#base-linux-arm`"]
+        Auto-detected`"]
     end
 
-    subgraph configs["`⚙️ **Configuration Types**`"]
+    subgraph configs["`⚙️ **Configuration**`"]
         direction TB
-        base_config["`**Base Config**
-        • Core modules only
-        • Cross-platform
-        • Minimal setup`"]
-        mac_config["`**Mac Config**
-        • macOS optimized
-        • Full features`"]
+        base_config["`**Single Config**
+        • All platforms
+        • Cross-platform modules
+        • Zero configuration`"]
     end
 
     subgraph auto["`🤖 **Auto-Detection**`"]
         direction TB
         user_detect["`**Username Detection**
         builtins.getEnv 'USER'
-        Fallback with helpful error`"]
+        Requires --impure flag`"]
         sys_detect["`**System Detection**
-        pkgs.stdenv.isDarwin
+        builtins.currentSystem
         Path adaptation`"]
     end
 
@@ -299,12 +303,16 @@ graph TD
 
     subgraph independent["`🔸 **Independent Modules**`"]
         direction LR
-        ghostty["`**ghostty.nix**
+        kitty["`**kitty.nix**
         Terminal`"]
         helix["`**helix.nix**
         Editor`"]
+        zed_mod["`**zed.nix**
+        Modern Editor`"]
         kubernetes["`**kubernetes.nix**
         DevOps`"]
+        gc_mod["`**gc.nix**
+        Cleanup`"]
     end
 
     ui --> independent
@@ -345,12 +353,14 @@ journey
 ## 📊 Key Metrics & Benefits
 
 ```mermaid
-pie title Configuration Distribution
-    "Core Packages" : 35
-    "Development Tools" : 25
-    "Security Setup" : 15
-    "Shell Environment" : 15
-    "UI & Theming" : 10
+pie title Package Distribution (147 Total)
+    "Core Packages" : 30
+    "Development Tools" : 41
+    "Kubernetes Tools" : 21
+    "Infrastructure" : 16
+    "Security" : 23
+    "Observability" : 11
+    "Productivity" : 5
 ```
 
 ## 🔧 Architecture Benefits
