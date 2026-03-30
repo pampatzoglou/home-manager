@@ -19,6 +19,7 @@ This project is a reboot of the original [workstation provisioning](https://gith
 - **Multi-Platform Support** - Apple Silicon, Intel Mac, Linux x64/ARM
 - **Automatic Username Detection** - Zero-config setup across systems
 - **Terminal Integration** - Kitty with custom theme and keybindings
+- **Automatic Garbage Collection** - Weekly cleanup of old generations (7-day retention)
 
 ### 🛡️ Security & Privacy
 
@@ -196,6 +197,7 @@ shellAliases = {
 | `security.nix` | Security configs | GPG, SSH, direnv with hardening |
 | `kitty.nix` | Terminal | Solarized Dark theme, fonts, keybindings |
 | `kubernetes.nix` | K8s configuration | Kubectl plugins, krew automation |
+| `gc.nix` | Garbage collection | Automatic cleanup of old generations |
 
 ## 📝 License
 
@@ -229,6 +231,23 @@ Customizations are stored in the [DEVELOPER IDENTITY](./docs/DEVELOPER_IDENTITY.
 ---
 
 ## 🗑️ Cleanup & Maintenance
+
+### ♻️ Automatic Garbage Collection
+
+This configuration automatically cleans up old Home-Manager generations to save disk space:
+
+- **Frequency**: Weekly (configurable in `modules/gc.nix`)
+- **Retention**: Keeps generations for 7 days
+- **Manual Trigger**: Run `nix-collect-garbage --delete-older-than 7d`
+
+**Customize retention period** by editing `modules/gc.nix`:
+```nix
+nix.gc = {
+  automatic = true;
+  dates = "daily";  # Options: "daily", "weekly", "monthly"
+  options = "--delete-older-than 14d";  # Change to 14 days, 30d, etc.
+};
+```
 
 ### 🍎 macOS Users
 

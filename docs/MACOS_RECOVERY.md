@@ -4,6 +4,82 @@ macOS updates frequently break parts of the Nix environment because they modify 
 
 ---
 
+## 0. `command not found: nix-shell` After Update
+
+**⏱️ Time Estimate: 3-5 minutes**
+
+If `nix-shell` or other Nix commands are not found after a macOS update, follow these steps:
+
+**🔍 Step 1: Check if Nix is still installed**
+
+```sh
+ls /nix
+```
+
+If you see directories like `store`, `var`, etc., Nix is still installed.  
+If `/nix` is missing → you'll need to reinstall (skip to Section 5).
+
+**🔍 Step 2: Try loading Nix manually**
+
+```sh
+. /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+```
+
+Then test:
+
+```sh
+nix-shell --version
+```
+
+If this works → the issue is just that your shell config isn't loading Nix anymore.
+
+**🛠️ Step 3: Fix your shell config (most common issue)**
+
+macOS updates often reset or change shells (e.g. bash → zsh), or overwrite config files.
+
+**If you're using zsh (default on macOS):**
+
+Edit `~/.zshrc` and add:
+
+```sh
+if [ -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]; then
+  . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+fi
+```
+
+Then reload:
+
+```sh
+source ~/.zshrc
+```
+
+**If you're using bash:**
+
+Edit `~/.bashrc` or `~/.bash_profile` and add the same snippet.
+
+**🔍 Step 4: Confirm PATH**
+
+```sh
+echo $PATH
+```
+
+You should see something like:
+
+```
+/nix/var/nix/profiles/default/bin
+```
+
+If not → the profile script isn't being sourced correctly.
+
+**Verify it worked:**
+
+```sh
+nix-shell --version
+# Should output the Nix version
+```
+
+---
+
 ## 1. Reinstall Xcode Command Line Tools (Most Common Issue)
 
 **⏱️ Time Estimate: 5-10 minutes**

@@ -68,7 +68,6 @@
     mdr
     localstack
     jetbrains.datagrip
-    jetbrains.goland
-    opencode
+    # jetbrains.goland
   ];
 }

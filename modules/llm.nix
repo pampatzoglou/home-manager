@@ -1,23 +1,21 @@
-{ pkgs
-, lib
-, ...
-}:
+{ pkgs, lib, ... }:
 
-{
-  # LLM Tools Configuration Module
-  # Ollama is commented out due to build issues - install manually if needed
-  # OpenCode is installed via Nix
-
+let
+  # Override ollama to skip broken web UI build
+  ollamaFixed = pkgs.ollama.overrideAttrs (oldAttrs: {
+    # Skip building the web UI which is currently broken
+    preBuild = ''
+      # Create dummy app/dist directory to satisfy build
+      mkdir -p app/dist
+      touch app/dist/.keep
+    '' + (oldAttrs.preBuild or "");
+  });
+in {
   # Install AI coding tools
-  home.packages = with pkgs; [
-    # ollama  # Commented out - install manually: curl -fsSL https://ollama.com/install.sh | sh
-    opencode # AI coding agent
-  ];
+  home.packages = [ ollamaFixed pkgs.opencode pkgs.warp ];
 
   # Environment variables for LLM tools
-  home.sessionVariables = {
-    OLLAMA_HOST = "http://localhost:11434";
-  };
+  home.sessionVariables = { OLLAMA_HOST = "http://localhost:11434"; };
 
   # Create configuration directories
   home.file.".config/llm/.keep".text = "";
@@ -30,7 +28,7 @@
       ollama = {
         enabled = true;
         endpoint = "http://localhost:11434";
-        note = "Install manually - Nix package is broken";
+        note = "Installed via Nix with build fix";
       };
       opencode = {
         enabled = true;
@@ -51,7 +49,8 @@
 
   # OpenRouter configuration placeholder
   home.file.".config/llm/openrouter.json".text = builtins.toJSON {
-    _comment = "OpenRouter API configuration - Add your API key via environment variable OPENROUTER_API_KEY";
+    _comment =
+      "OpenRouter API configuration - Add your API key via environment variable OPENROUTER_API_KEY";
     api_url = "https://openrouter.ai/api/v1";
     models = {
       recommended = [
@@ -237,17 +236,14 @@
     echo "=== LLM Tools Configuration ==="
     echo ""
     echo "📦 Packages:"
+    echo "  ✓ Ollama installed (via Nix)"
     echo "  ✓ OpenCode installed (via Nix)"
-    echo "  ⚠ Ollama not installed (install manually)"
     echo ""
     echo "📝 Configuration files created:"
     echo "  ~/.config/llm/config.json"
     echo "  ~/.config/llm/openrouter.json"
     echo ""
-    echo "🚀 To install Ollama manually:"
-    echo "  curl -fsSL https://ollama.com/install.sh | sh"
-    echo ""
-    echo "🚀 Quick start (after installing Ollama):"
+    echo "🚀 Quick start:"
     echo "  1. Start Ollama: ollama serve &"
     echo "  2. Pull models: ollama-helper pull-defaults"
     echo "  3. Test chat: ollama-helper chat"

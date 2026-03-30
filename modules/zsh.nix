@@ -23,7 +23,7 @@
       ll = "eza -l";
       la = "eza -la";
       lt = "eza --tree";
-      cc = ''noglob _cc'';
+      cc = "noglob _cc";
 
       # Git
       gc = "git commit -m";
@@ -32,7 +32,8 @@
       gpu = "git pull origin";
       gst = "git status";
       gs = "git status";
-      glog = "git log --graph --topo-order --pretty='%w(100,0,6)%C(yellow)%h%C(bold)%C(black)%d %C(cyan)%ar %C(green)%an%n%C(bold)%C(white)%s %N' --abbrev-commit";
+      glog =
+        "git log --graph --topo-order --pretty='%w(100,0,6)%C(yellow)%h%C(bold)%C(black)%d %C(cyan)%ar %C(green)%an%n%C(bold)%C(white)%s %N' --abbrev-commit";
       gdiff = "git diff";
       gco = "git checkout";
       gb = "git branch";
