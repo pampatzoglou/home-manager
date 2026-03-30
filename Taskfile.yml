@@ -1,0 +1,264 @@
+version: '3'
+
+vars:
+  CONFIG_DIR: '{{default "~/.config/home-manager" .CONFIG_DIR}}'
+  FLAKE_FLAGS: '--impure'
+
+tasks:
+  default:
+    desc: "Show available tasks"
+    cmds:
+      - task --list
+
+  check:
+    desc: "Run all pre-commit checks (recommended before commit)"
+    cmds:
+      - task: check:deadnix
+      - task: check:format
+      - task: check:syntax
+      - task: check:flake
+      - task: check:conflicts
+    silent: false
+
+  check:quick:
+    desc: "Quick validation (syntax + flake check only)"
+    cmds:
+      - task: check:syntax
+      - task: check:flake
+
+  check:deadnix:
+    desc: "Check for unused Nix declarations"
+    cmds:
+      - echo "▶ Checking for unused declarations..."
+      - nix run nixpkgs#deadnix -- *.nix modules/
+    silent: false
+
+  check:format:
+    desc: "Check Nix code formatting"
+    cmds:
+      - echo "▶ Checking Nix formatting..."
+      - nix run nixpkgs#nixpkgs-fmt -- --check *.nix modules/
+    silent: false
+
+  check:syntax:
+    desc: "Validate Nix syntax"
+    cmds:
+      - echo "▶ Validating Nix syntax..."
+      - nix-instantiate --parse-only flake.nix
+      - find modules -name '*.nix' -exec nix-instantiate --parse-only {} \;
+    silent: false
+
+  check:flake:
+    desc: "Run nix flake check"
+    cmds:
+      - echo "▶ Running flake check..."
+      - nix flake check --no-build {{.FLAKE_FLAGS}}
+    silent: false
+
+  check:build:
+    desc: "Test build without applying (evaluates configuration)"
+    cmds:
+      - echo "▶ Testing configuration build..."
+      - home-manager build --flake . {{.FLAKE_FLAGS}}
+      - rm -f result
+    silent: false
+
+  check:conflicts:
+    desc: "Check for merge conflicts"
+    cmds:
+      - echo "▶ Checking for merge conflicts..."
+      - |
+        if git grep -l '<<<<<<< HEAD' -- '*.nix' '*.md' 2>/dev/null; then
+          echo "✗ Merge conflicts found!"
+          exit 1
+        else
+          echo "✓ No merge conflicts"
+        fi
+    silent: false
+
+  fix:
+    desc: "Auto-fix common issues (format + remove deadnix)"
+    cmds:
+      - task: fix:format
+      - task: fix:deadnix
+
+  fix:format:
+    desc: "Auto-format Nix files"
+    cmds:
+      - echo "▶ Formatting Nix files..."
+      - nix run nixpkgs#nixpkgs-fmt -- *.nix modules/
+      - echo "✓ Formatting complete"
+    silent: false
+
+  fix:deadnix:
+    desc: "Auto-remove unused declarations"
+    cmds:
+      - echo "▶ Removing unused declarations..."
+      - nix run nixpkgs#deadnix -- --edit *.nix modules/
+      - echo "✓ Deadnix cleanup complete"
+    silent: false
+
+  build:
+    desc: "Build configuration without switching"
+    cmds:
+      - echo "▶ Building configuration..."
+      - home-manager build --flake . {{.FLAKE_FLAGS}}
+      - echo "✓ Build complete (see ./result)"
+    silent: false
+
+  switch:
+    desc: "Build and switch to new configuration"
+    cmds:
+      - echo "▶ Switching to new configuration..."
+      - home-manager switch --flake . {{.FLAKE_FLAGS}}
+    silent: false
+
+  switch:trace:
+    desc: "Switch with detailed error traces"
+    cmds:
+      - echo "▶ Switching with trace output..."
+      - home-manager switch --flake . {{.FLAKE_FLAGS}} --show-trace
+    silent: false
+
+  update:
+    desc: "Update flake inputs"
+    cmds:
+      - echo "▶ Updating flake inputs..."
+      - nix flake update
+      - echo "✓ Flake inputs updated"
+    silent: false
+
+  update:input:
+    desc: "Update specific flake input (usage: task update:input INPUT=nixpkgs)"
+    cmds:
+      - echo "▶ Updating {{.INPUT}}..."
+      - nix flake lock --update-input {{.INPUT}}
+    requires:
+      vars: [INPUT]
+    silent: false
+
+  gc:
+    desc: "Run garbage collection (removes old generations)"
+    cmds:
+      - echo "▶ Running garbage collection..."
+      - nix-collect-garbage -d
+      - echo "✓ Garbage collection complete"
+    silent: false
+
+  gc:safe:
+    desc: "Safe garbage collection (keeps last 30 days)"
+    cmds:
+      - echo "▶ Running safe garbage collection..."
+      - nix-collect-garbage --delete-older-than 30d
+      - echo "✓ Safe garbage collection complete"
+    silent: false
+
+  list:
+    desc: "List home-manager generations"
+    cmds:
+      - home-manager generations
+    silent: false
+
+  rollback:
+    desc: "Rollback to previous generation"
+    cmds:
+      - echo "▶ Rolling back to previous generation..."
+      - home-manager switch --rollback
+    silent: false
+
+  info:
+    desc: "Show flake metadata"
+    cmds:
+      - nix flake metadata {{.FLAKE_FLAGS}}
+    silent: false
+
+  clean:
+    desc: "Clean build artifacts and cache"
+    cmds:
+      - echo "▶ Cleaning build artifacts..."
+      - rm -f result
+      - rm -rf ~/.cache/nix/eval-cache-v6/ || true
+      - echo "✓ Clean complete"
+    silent: false
+
+  doctor:
+    desc: "Run nix doctor diagnostics"
+    cmds:
+      - nix doctor
+    silent: false
+
+  pre-commit:install:
+    desc: "Install pre-commit hooks"
+    cmds:
+      - echo "▶ Installing pre-commit hooks..."
+      - nix-shell -p pre-commit --run "pre-commit install"
+      - echo "✓ Pre-commit hooks installed"
+    silent: false
+
+  pre-commit:run:
+    desc: "Run pre-commit hooks manually"
+    cmds:
+      - echo "▶ Running pre-commit hooks..."
+      - nix-shell -p pre-commit --run "pre-commit run --all-files"
+    silent: false
+
+  git:check:
+    desc: "Git status and diff summary"
+    cmds:
+      - echo "▶ Git status:"
+      - git status --short
+      - echo ""
+      - echo "▶ Changed Nix files:"
+      - git diff --name-only '*.nix' || echo "  (none)"
+    silent: false
+
+  ci:
+    desc: "Run full CI checks locally (same as GitHub Actions)"
+    cmds:
+      - task: check
+      - echo ""
+      - echo "✓ All CI checks passed! Ready to push."
+    silent: false
+
+  help:
+    desc: "Show detailed help"
+    cmds:
+      - |
+        cat << 'HELP'
+        
+        ╔════════════════════════════════════════════╗
+        ║  Home-Manager Task Runner Help            ║
+        ╚════════════════════════════════════════════╝
+        
+        📋 Common Workflows:
+        
+        Before committing:
+          task check              # Run all checks
+          task check:quick        # Quick validation
+          task fix                # Auto-fix issues
+          
+        Development:
+          task switch             # Apply configuration
+          task build              # Build without switching
+          task update             # Update dependencies
+          
+        Maintenance:
+          task gc                 # Clean old generations
+          task list               # Show generations
+          task rollback           # Undo last change
+          
+        Debugging:
+          task switch:trace       # Detailed errors
+          task doctor             # Run diagnostics
+          task clean              # Clear caches
+          
+        CI/CD:
+          task ci                 # Run full CI locally
+          task git:check          # Review changes
+          
+        📖 View all tasks:
+          task --list
+          task --list-all         # Include dependencies
+        
+        HELP
+    silent: true

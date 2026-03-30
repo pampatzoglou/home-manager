@@ -10,7 +10,8 @@ let
       touch app/dist/.keep
     '' + (oldAttrs.preBuild or "");
   });
-in {
+in
+{
   # Install AI coding tools
   home.packages = [ ollamaFixed pkgs.opencode pkgs.warp ];
 

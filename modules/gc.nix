@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ ... }:
 
 {
   # Automatic garbage collection of old home-manager generations
