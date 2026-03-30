@@ -21,12 +21,6 @@ This project is a reboot of the original [workstation provisioning](https://gith
 - **Terminal Integration** - Kitty with custom theme and keybindings
 - **Automatic Garbage Collection** - Weekly cleanup of old generations (7-day retention)
 
-### 🛡️ Security & Privacy
-
-- **GPG Configuration** - Enhanced cryptographic settings with YubiKey support
-- **SSH Hardening** - Modern ciphers and security policies
-- **Browser Privacy** - DuckDuckGo default search, ad blocking, privacy-focused extensions
-
 ### 🎨 Beautiful Shell Experience
 
 - **Zsh** with autocompletion, syntax highlighting, and 60+ aliases
