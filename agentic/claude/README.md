@@ -82,11 +82,13 @@ Skills are **automatically discovered** from the `skills/` directory!
 
 1. Create `skills/my-skill.md` in this directory
 2. Stage the file in git: `git add agentic/claude/skills/my-skill.md`
-3. Run `home-manager switch -b backup --impure`
+3. Run `home-manager switch --flake . --impure` (or with backups: `home-manager switch -b backup --impure`)
 
 **Note**: Files must be tracked (or staged) in git for Nix flakes to see them. Untracked files will not be deployed.
 
-**No need to edit `modules/claude.nix`** - all `.md` files in `skills/` are automatically deployed to `~/.claude/skills/`
+**Remember:** The `--impure` flag is required for username auto-detection. The `-b backup` flag creates backups of existing files before replacing them.
+
+**No manual module editing required** - all `.md` files in `skills/` are automatically deployed to `~/.claude/skills/`
 
 ### Updating settings.json
 

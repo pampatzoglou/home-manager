@@ -19,7 +19,7 @@ home-manager switch --flake .#$(whoami) --impure
 nix flake update
 
 # Apply updates
-home-manager switch --flake .#$(whoami) --impure
+home-manager switch --flake . --impure
 ```
 
 ### Check for Issues
@@ -28,7 +28,7 @@ home-manager switch --flake .#$(whoami) --impure
 nix flake check --impure
 
 # Check home-manager configuration
-home-manager switch -b backup --impure --dry-run
+home-manager switch --flake . --impure --dry-run
 ```
 
 ### Rollback
@@ -37,7 +37,7 @@ home-manager switch -b backup --impure --dry-run
 home-manager generations
 
 # Rollback to previous generation
-home-manager switch -b backup --switch-generation <number>
+home-manager switch --switch-generation <number>
 ```
 
 ## 🤖 Claude AI Skills
@@ -63,7 +63,7 @@ ls ~/.claude/skills/
 vim agentic/claude/skills/debugging.md
 
 # 2. Deploy (file already tracked)
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
 ```
 
 ### Current Skills
@@ -84,7 +84,7 @@ vim modules/packages/development.nix
 pkgs.your-package
 
 # Apply
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
 ```
 
 ### Search for Package
@@ -107,7 +107,7 @@ vim modules/zsh.nix
 k = "kubectl";
 
 # Apply
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
 ```
 
 ### Update Starship Prompt
@@ -116,7 +116,7 @@ home-manager switch -b backup --impure
 vim modules/starship.nix
 
 # Apply
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
 ```
 
 ## 🔧 Troubleshooting
@@ -128,10 +128,13 @@ home-manager switch -b backup --impure
 
 **Solution:**
 ```bash
-# Wrong
+# Wrong - missing --impure
 home-manager switch
 
 # Correct
+home-manager switch --flake . --impure
+
+# Also correct - with backups (recommended)
 home-manager switch -b backup --impure
 ```
 
@@ -153,16 +156,16 @@ git commit -m "Your message"
 git add agentic/claude/skills/new-skill.md
 
 # Deploy
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
 ```
 
 ### Debug Mode
 ```bash
 # Verbose output
-home-manager switch -b backup --impure --verbose
+home-manager switch --flake . --impure --verbose
 
 # Show trace on errors
-home-manager switch -b backup --impure --show-trace
+home-manager switch --flake . --impure --show-trace
 ```
 
 ## 🧹 Maintenance
@@ -268,12 +271,13 @@ readlink ~/.claude/CLAUDE.md
 # Morning: Update everything
 cd ~/.config/home-manager
 nix flake update
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
 
 # During day: Add/edit configs
 vim modules/packages.nix
 git add modules/packages.nix
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
+```
 
 # End of day: Commit changes
 git add -A
@@ -285,16 +289,16 @@ git push
 
 ```bash
 # Quick deploy
-cd ~/.config/home-manager && home-manager switch -b backup --impure
+cd ~/.config/home-manager && home-manager switch --flake . --impure
 
 # Update and deploy
-cd ~/.config/home-manager && nix flake update && home-manager switch -b backup --impure
+cd ~/.config/home-manager && nix flake update && home-manager switch --flake . --impure
 
 # Add skill and deploy
-git add agentic/claude/skills/*.md && home-manager switch -b backup --impure
+git add agentic/claude/skills/*.md && home-manager switch --flake . --impure
 
 # Emergency rollback
-home-manager generations && home-manager switch -b backup --switch-generation $(home-manager generations | sed -n '2p' | awk '{print $5}')
+home-manager generations && home-manager switch --switch-generation $(home-manager generations | sed -n '2p' | awk '{print $5}')
 ```
 
 ## 🆘 Emergency Recovery
@@ -303,12 +307,12 @@ home-manager generations && home-manager switch -b backup --switch-generation $(
 ```bash
 # Rollback to last working generation
 home-manager generations
-home-manager switch -b backup --switch-generation <last-good-number>
+home-manager switch --switch-generation <last-good-number>
 
 # Or use git
 git log --oneline
 git checkout <last-good-commit>
-home-manager switch -b backup --impure
+home-manager switch --flake . --impure
 ```
 
 ### Nix Issues (macOS)
@@ -316,4 +320,5 @@ See `docs/MACOS_RECOVERY.md` for comprehensive troubleshooting.
 
 ---
 
-> **Remember:** `-b backup --impure` is required for all `home-manager switch` commands in this flake!
+> **Remember:** `--impure` is required for all `home-manager switch` commands in this flake!  
+> **Tip:** Add `-b backup` to create backups of existing files before replacing them (recommended).

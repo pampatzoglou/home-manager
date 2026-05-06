@@ -34,6 +34,8 @@ The files in this directory are **source files** that get deployed to your home 
 1. **Edit source files** in `agentic/claude/` directory
 2. **Apply changes** with home-manager:
    ```bash
+   home-manager switch --flake . --impure
+   # OR with backups (recommended):
    home-manager switch -b backup --impure
    ```
 3. **Verify** files are deployed to `~/.claude/`
@@ -54,10 +56,14 @@ Skills are **automatically discovered** from the `claude/skills/` directory!
 
 3. Apply with home-manager switch:
    ```bash
+   home-manager switch --flake . --impure
+   # OR with backups (recommended):
    home-manager switch -b backup --impure
    ```
 
 **Note**: Files must be tracked (or staged) in git for Nix flakes to see them. Untracked files will not be deployed.
+
+**Remember:** The `--impure` flag is required for username auto-detection. The `-b backup` flag creates backups of existing files before replacing them.
 
 **No manual module editing required** - all `.md` files in `skills/` are automatically deployed!
 
