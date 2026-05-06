@@ -2,15 +2,13 @@
 
 let
   # Auto-detect username from environment with fallback
-  username =
-    let env_user = builtins.getEnv "USER";
-    in if env_user != "" then
-      env_user
-    else
-      builtins.throw
-        "Unable to determine username. Please set USER environment variable or use --impure flag.";
-in
-{
+  username = let env_user = builtins.getEnv "USER";
+  in if env_user != "" then
+    env_user
+  else
+    builtins.throw
+    "Unable to determine username. Please set USER environment variable or use --impure flag.";
+in {
   # Core home-manager configuration - auto-detect username from environment
   home.username = username;
   home.homeDirectory =
@@ -48,6 +46,7 @@ in
     ./modules/security.nix
     ./modules/kubernetes.nix
     ./modules/kitty.nix
+    ./modules/claude.nix
     # ./modules/llm.nix
     ./modules/gc.nix
   ];

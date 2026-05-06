@@ -27,6 +27,13 @@ This project is a reboot of the original [workstation provisioning](https://gith
 - **Starship Prompt** - Multi-language support with Kubernetes, Docker, Git integration
 - **Modern CLI Tools** - ripgrep, fd, bat, eza, zoxide, and more
 
+### 🤖 AI Assistant Configuration
+
+- **Claude Skills** - Auto-discovered reusable skills for common development tasks
+- **Personal Preferences** - Coding style, language preferences, and workflows
+- **Methodology-Focused** - General best practices for Terraform, Kubernetes, Infrastructure
+- **Git-Managed** - All AI configurations version-controlled and reproducible
+
 ## 📁 Architecture
 
 This configuration uses a **modular, cross-platform approach** with automatic username detection for maximum portability:
@@ -69,8 +76,14 @@ graph LR
 > 📖 **Detailed Architecture**: See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for comprehensive diagrams and technical details
 > 🛠️ **Tools Reference**: See [TOOLS.md](./docs/TOOLS.md) for complete tool documentation and usage examples
 > 📋 **Task Automation**: See [TASKS.md](./docs/TASKS.md) for common tasks and automation workflows
+> 🤖 **AI Assistant Setup**: See [agentic/README.md](./agentic/README.md) for Claude configuration and skills
 
 ## 🚀 Quick Start
+
+> ⚠️ **Important:** This flake uses automatic username detection via `builtins.getEnv "USER"`, which requires the `--impure` flag for all `home-manager` commands.
+> 
+> **Recommended:** `home-manager switch -b backup --impure` (creates backups)  
+> **Alternative:** `home-manager switch --flake . --impure` (no backups)
 
 ### Prerequisites
 
@@ -186,6 +199,7 @@ This configuration consists of **11 active modules**:
 | `security.nix` | Security configs | GPG, SSH, direnv with hardening |
 | `kitty.nix` | Terminal | Solarized Dark theme, fonts, keybindings |
 | `kubernetes.nix` | K8s configuration | Kubectl plugins, krew automation |
+| `claude.nix` | AI assistant config | Auto-discovered skills, personal preferences |
 | `gc.nix` | Garbage collection | Automatic cleanup of old generations |
 
 ## 📝 License
@@ -198,6 +212,51 @@ This configuration is provided as-is for educational and personal use. Feel free
 - [Nix](https://nixos.org/) community
 - All the amazing tool developers whose packages are included
 
+## 🤖 AI Assistant Configuration
+
+This configuration includes a comprehensive setup for Claude AI Assistant with auto-discovered skills and personal preferences.
+
+### Structure
+
+```
+agentic/claude/
+├── CLAUDE.md                 # Personal coding preferences
+├── settings.json.template    # Permission rules template
+└── skills/                   # Auto-discovered skills
+    ├── code-review.md
+    ├── debugging.md
+    ├── infrastructure.md
+    ├── kubernetes.md
+    └── terraform.md
+```
+
+### Adding New Skills
+
+Skills are **automatically discovered** - no module editing required:
+
+```bash
+# 1. Create skill file
+vim agentic/claude/skills/my-skill.md
+
+# 2. Stage in git (required for Nix flakes)
+git add agentic/claude/skills/my-skill.md
+
+# 3. Deploy (--impure required!)
+home-manager switch -b backup --impure  # With backups (recommended)
+# OR
+home-manager switch --flake . --impure  # Without backups
+```
+
+### Available Skills
+
+- **code-review.md** - Security, quality, performance checklists
+- **debugging.md** - Systematic 6-step debugging methodology
+- **infrastructure.md** - DevOps, monitoring, CI/CD best practices
+- **kubernetes.md** - Platform-aware resource management patterns
+- **terraform.md** - General IaC methodology and best practices
+
+For detailed documentation, see [agentic/README.md](./agentic/README.md).
+
 ---
 
 **⚡ Quick Commands:**
@@ -209,10 +268,18 @@ nix flake check
 # Update packages
 nix flake update
 
+# Apply changes (--impure required!)
+home-manager switch -b backup --impure  # With backups (recommended)
+# OR
+home-manager switch --flake . --impure  # Without backups
+
 # Rollback changes
 home-manager generations
-home-manager switch --flake . --switch-generation <id>
+home-manager switch --switch-generation <id>
 ```
+
+> 💡 **Remember:** All `home-manager switch` commands require `--impure` due to auto-detection of username.  
+> 💡 **Tip:** Use `-b backup` to create backups of existing files before replacing them.
 
 # 📝 DEVELOPER IDENTIFICATION
 Customizations are stored in the [DEVELOPER IDENTITY](./docs/DEVELOPER_IDENTITY.md).

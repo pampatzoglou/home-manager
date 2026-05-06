@@ -32,6 +32,9 @@ graph TB
         helix.nix
         zed.nix
         kubernetes.nix`"]
+        ai["`**AI Assistant**
+        claude.nix
+        Auto-discovered skills`"]
         sys["`**System Integration**
         kitty.nix`"]
     end
@@ -182,6 +185,13 @@ graph LR
         • Context awareness`"]
     end
 
+    subgraph "🤖 AI Assistant"
+        claude["`**claude.nix**
+        • Auto-discovered skills
+        • Personal preferences
+        • Methodology-focused`"]
+    end
+
     subgraph "🎨 User Interface"
         kitty["`**kitty.nix**
         • Terminal theming
@@ -198,6 +208,7 @@ graph LR
     base --> k8s
     base --> zsh
     base --> starship
+    base --> claude
     base --> kitty
 
     packages -.-> security
