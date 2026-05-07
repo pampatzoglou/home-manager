@@ -4,6 +4,35 @@ This directory contains Claude-specific configuration files that are deployed to
 
 ## Files
 
+### Skill Organization
+
+Skills can be organized in two ways:
+
+**1. Flat Files** - Simple single-topic skills:
+```
+skills/
+├── code-review.md
+├── debugging.md
+└── infrastructure.md
+```
+
+**2. Directories** - Complex multi-document skills:
+```
+skills/
+├── terraform/
+│   ├── SKILL.md
+│   ├── devbox.json
+│   ├── Taskfile.yml
+│   └── github-actions.yml
+└── kubernetes/
+    ├── SKILL.md
+    ├── authoring-helm-charts.md
+    ├── resource-standards.md
+    └── troubleshooting.md
+```
+
+Both structures are automatically discovered and deployed to `~/.claude/skills/`.
+
 ### CLAUDE.md
 Your personal coding preferences, language choices, and communication style. Claude reads this file to understand how you prefer to work.
 
@@ -39,15 +68,14 @@ Comprehensive code review checklist covering:
 - Nix-specific considerations
 
 #### debugging.md
-Systematic debugging methodology:
+- Systematic debugging methodology:
 - 6-step debugging process (Reproduce, Isolate, Hypothesize, Test, Fix, Verify)
 - Common issues checklist (environment, concurrency, resources, data, permissions)
 - Tools and techniques for different scenarios
 - Nix-specific debugging tips
 - Prevention strategies
 
-#### infrastructure.md
-Infrastructure and DevOps best practices:
+**infrastructure.md** - Infrastructure and DevOps best practices:
 - Core principles (declarative, immutable, version controlled, automated)
 - Terraform best practices
 - Kubernetes deployment strategies
@@ -80,15 +108,35 @@ These files are automatically deployed by the `modules/claude.nix` home-manager 
 
 Skills are **automatically discovered** from the `skills/` directory!
 
+#### Option 1: Simple Flat File
+
+For single-document skills:
+
 1. Create `skills/my-skill.md` in this directory
 2. Stage the file in git: `git add agentic/claude/skills/my-skill.md`
-3. Run `home-manager switch --flake . --impure` (or with backups: `home-manager switch -b backup --impure`)
+3. Run `home-manager switch --flake . --impure`
+
+#### Option 2: Directory Structure
+
+For complex multi-document skills (like terraform or kubernetes):
+
+1. Create a directory: `mkdir -p skills/my-skill`
+2. Add files:
+   ```
+   skills/my-skill/
+   ├── SKILL.md           # Main skill documentation
+   ├── examples.md        # Additional resources
+   ├── devbox.json        # Example configurations
+   └── Taskfile.yml       # Example task files
+   ```
+3. Stage all files: `git add agentic/claude/skills/my-skill/`
+4. Run `home-manager switch --flake . --impure`
 
 **Note**: Files must be tracked (or staged) in git for Nix flakes to see them. Untracked files will not be deployed.
 
 **Remember:** The `--impure` flag is required for username auto-detection. The `-b backup` flag creates backups of existing files before replacing them.
 
-**No manual module editing required** - all `.md` files in `skills/` are automatically deployed to `~/.claude/skills/`
+**No manual module editing required** - all `.md` files and directories in `skills/` are automatically deployed to `~/.claude/skills/`
 
 ### Updating settings.json
 

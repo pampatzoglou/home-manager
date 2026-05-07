@@ -75,7 +75,11 @@ Contains your personal coding style, language preferences, and communication sty
 
 ### skills/ - Reusable Methodologies
 
-Markdown files containing structured approaches to common development tasks. These are reference documents that Claude can use to perform tasks consistently.
+Markdown files or directories containing structured approaches to common development tasks. These are reference documents that Claude can use to perform tasks consistently.
+
+**Organization:** Skills can be organized as:
+- **Flat files** - Single `.md` file for simple skills (e.g., `code-review.md`)
+- **Directories** - Folder with multiple files for complex skills (e.g., `terraform/`, `kubernetes/`)
 
 **Current Skills:**
 
@@ -88,7 +92,7 @@ Comprehensive code review checklist covering:
 - Documentation completeness
 - Language-specific considerations (Nix, etc.)
 
-#### debugging.md
+#### debugging.md (Flat File)
 Systematic debugging methodology:
 - 6-step process: Reproduce → Isolate → Hypothesize → Test → Fix → Verify
 - Common issues checklist (environment, concurrency, resources, data, permissions)
@@ -96,7 +100,7 @@ Systematic debugging methodology:
 - Language-specific debugging tips (Nix, etc.)
 - Prevention strategies
 
-#### infrastructure.md
+#### infrastructure.md (Flat File)
 Infrastructure and DevOps best practices:
 - Core principles (declarative, immutable, version controlled, automated)
 - Terraform patterns and best practices
@@ -106,8 +110,20 @@ Infrastructure and DevOps best practices:
 - CI/CD pipeline design
 - Disaster recovery procedures
 
-#### kubernetes.md
-Kubernetes resource management (platform-aware):
+#### kubernetes/ (Directory Structure)
+Kubernetes resource management with multiple focused documents:
+- **SKILL.md** - Main Kubernetes skill overview
+- **authoring-helm-charts.md** - Helm chart best practices
+- **resource-standards.md** - K8s resource standards
+- **reviewing-manifests.md** - Manifest review checklist
+- **troubleshooting.md** - K8s troubleshooting guide
+- **taskfile.md** - Task automation patterns
+- **devbox.md** - Devbox configuration
+- **skaffold.md** - Skaffold workflows
+- **github-actions.md** - CI/CD integration
+- **team-conventions.md** - Team-specific patterns
+
+Key topics:
 - Repository structure conventions from actual projects
 - GitOps with ArgoCD sync wave strategies
 - Helm chart best practices and patterns
@@ -116,8 +132,17 @@ Kubernetes resource management (platform-aware):
 - Operator-based resources (databases, messaging)
 - Platform integration (TLS, secrets, DNS, monitoring)
 
-#### terraform.md
-General Terraform IaC methodology:
+#### terraform/ (Directory Structure)
+Terraform infrastructure as code with example configurations:
+- **SKILL.md** - Main Terraform methodology
+- **devbox.json** - Example devbox configuration
+- **Taskfile.yml** - Example task automation
+- **github-actions.yml** - Example CI/CD pipeline
+- **audit-triage.md** - Security audit procedures
+- **.pre-commit-config.yaml** - Pre-commit hooks
+- **.gitignore** - Terraform-specific gitignore
+
+Key topics:
 - Core principles and best practices
 - Project structure and organization
 - Variable design and validation
@@ -140,20 +165,39 @@ Template showing recommended structure for Claude's global settings including:
 
 ## Auto-Discovery System
 
-The `modules/claude.nix` module automatically discovers and deploys all `.md` files from `agentic/claude/skills/`:
+The `modules/claude.nix` module automatically discovers and deploys all `.md` files and directories from `agentic/claude/skills/`:
 
 ### How It Works
 
-1. **Directory Scan**: Reads all files in `agentic/claude/skills/`
-2. **Filter**: Selects only regular files ending in `.md`
+1. **Directory Scan**: Reads all entries in `agentic/claude/skills/`
+2. **Filter**: Selects `.md` files and non-hidden directories
 3. **Map**: Creates deployment mappings to `~/.claude/skills/`
-4. **Deploy**: Symlinks files to Nix store during activation
+   - Flat files: Direct copy
+   - Directories: Recursive copy (preserves structure)
+4. **Deploy**: Symlinks files/directories to Nix store during activation
+
+### Supported Structures
+
+**Flat Files:**
+```
+skills/code-review.md → ~/.claude/skills/code-review.md
+skills/debugging.md   → ~/.claude/skills/debugging.md
+```
+
+**Directories:**
+```
+skills/terraform/     → ~/.claude/skills/terraform/ (recursive)
+  ├── SKILL.md
+  ├── devbox.json
+  └── Taskfile.yml
+```
 
 ### Benefits
 
 - ✅ **No manual configuration**: Add skills without editing Nix modules
 - ✅ **Scalable**: Add 1 or 100 skills with the same workflow
-- ✅ **Maintainable**: Skills are just markdown files
+- ✅ **Flexible**: Support both simple and complex skill structures
+- ✅ **Maintainable**: Skills are just markdown files or organized folders
 - ✅ **Safe**: Git tracking ensures intentional deployments
 - ✅ **Clean**: No boilerplate in Nix code
 
@@ -163,6 +207,8 @@ The `modules/claude.nix` module automatically discovers and deploys all `.md` fi
 
 Skills are automatically discovered - no module editing required!
 
+**Option 1: Simple Flat File** (for single-topic skills)
+
 ```bash
 # 1. Create skill file
 vim agentic/claude/skills/my-new-skill.md
@@ -171,12 +217,35 @@ vim agentic/claude/skills/my-new-skill.md
 git add agentic/claude/skills/my-new-skill.md
 
 # 3. Deploy (--impure is required!)
-home-manager switch -b backup --impure  # With backups (recommended)
-# OR
-home-manager switch --flake . --impure  # Without backups
+home-manager switch --flake . --impure
 
 # 4. Verify deployment
 ls -la ~/.claude/skills/
+```
+
+**Option 2: Directory Structure** (for complex multi-document skills)
+
+```bash
+# 1. Create directory and files
+mkdir -p agentic/claude/skills/my-skill
+cat > agentic/claude/skills/my-skill/SKILL.md << 'EOF'
+# My Skill
+Main skill documentation here
+EOF
+
+# Add supporting files
+vim agentic/claude/skills/my-skill/examples.md
+vim agentic/claude/skills/my-skill/devbox.json
+vim agentic/claude/skills/my-skill/Taskfile.yml
+
+# 2. Stage all files in git
+git add agentic/claude/skills/my-skill/
+
+# 3. Deploy
+home-manager switch --flake . --impure
+
+# 4. Verify deployment
+ls -la ~/.claude/skills/my-skill/
 ```
 
 **Important:** Files must be tracked (or staged) in git for Nix flakes to see them. Untracked files will not be deployed.

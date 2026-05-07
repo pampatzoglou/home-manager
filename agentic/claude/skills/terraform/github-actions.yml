@@ -1,0 +1,121 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Prevent concurrent applies to the same environment
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write       # for plan-comment posting
+  id-token: write            # for OIDC federation
+
+jobs:
+  check:
+    name: Validate, lint & audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.11.0
+
+      - name: Format & validate
+        run: |
+          devbox run task fmt
+          devbox run task validate
+
+      - name: Lint (fast)
+        run: devbox run task lint
+
+      - name: Audit (tflint + tfsec, strict)
+        run: devbox run task audit
+
+      - name: Upload audit results
+        if: always()    # Upload even on failure so triage is possible
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-results
+          path: audit-results/
+          retention-days: 7
+
+  plan-dev:
+    name: Plan (dev)
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.11.0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Plan
+        run: devbox run task dev:plan
+
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-dev
+          path: plan-dev.tfplan
+          retention-days: 1
+
+  apply-dev:
+    name: Apply (dev)
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.11.0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Plan
+        run: devbox run task dev:plan
+
+      - name: Apply
+        run: devbox run task dev:apply
+
+  apply-prod:
+    name: Apply (prod)
+    runs-on: ubuntu-latest
+    needs: apply-dev
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production    # configure required reviewers in GitHub settings
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.11.0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PROD_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Plan
+        run: devbox run task prod:plan
+
+      - name: Apply
+        run: devbox run task prod:apply

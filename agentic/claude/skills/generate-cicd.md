@@ -1,5 +1,5 @@
 ---
-name: dot-ai-generate-cicd
+name: generate-cicd
 description: Generate intelligent CI/CD workflows through interactive conversation by analyzing repository structure and user preferences
 user-invocable: true
 ---

@@ -1,0 +1,31 @@
+repos:
+  - repo: local
+    hooks:
+      - id: terraform-fmt
+        name: Terraform format
+        entry: devbox run task fmt
+        language: system
+        pass_filenames: false
+        files: \.tf$
+
+      - id: terraform-validate
+        name: Terraform validate
+        entry: devbox run task validate
+        language: system
+        pass_filenames: false
+        files: \.tf$
+
+      - id: terraform-lint
+        name: Terraform lint (fast)
+        entry: devbox run task lint
+        language: system
+        pass_filenames: false
+        files: \.tf$
+
+      - id: terraform-audit
+        name: Terraform audit (tflint + tfsec, strict)
+        entry: devbox run task audit
+        language: system
+        pass_filenames: false
+        files: \.tf$
+        stages: [pre-push]   # Heavier; run on push rather than every commit
