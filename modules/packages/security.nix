@@ -14,7 +14,7 @@
     terrascan
     hadolint
     kics
-    checkov
+    # checkov  # fails to build on Apple Silicon (python3.13-av dependency); use: pip install checkov
     tfsec
     git-secrets
     gitleaks

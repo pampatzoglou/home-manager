@@ -29,8 +29,5 @@ jobs:
       - name: Install Task
         uses: go-task/setup-task@v1
 
-      - name: Run CI checks
-        run: task check
-
-      - name: Run pre-commit checks
-        run: task pre-commit:run
+      - name: Audit
+        run: task audit

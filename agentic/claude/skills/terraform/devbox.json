@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.10.5/.schema/devbox.schema.json",
+  "packages": [
+    "terraform@1.7.0",
+    "go-task@3.35.0",
+    "tflint@latest",
+    "tfsec@latest",
+    "terraform-docs@latest",
+    "pre-commit@latest",
+    "jq@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "echo '🌍 Terraform environment ready'",
+      "terraform version",
+      "echo ''",
+      "echo 'Available tasks:'",
+      "task --list 2>/dev/null || echo '  (no Taskfile.yml in current directory)'"
+    ],
+    "scripts": {
+      "fresh": [
+        "task clean",
+        "task check"
+      ]
+    }
+  }
+}

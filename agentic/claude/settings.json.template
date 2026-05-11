@@ -1,0 +1,157 @@
+{
+  "permissions": {
+    "allowed_commands": [
+      "git",
+      "nix-build",
+      "nix-shell",
+      "home-manager",
+      "kubectl",
+      "terraform",
+      "docker",
+      "npm",
+      "yarn",
+      "cargo",
+      "go"
+    ],
+    "auto_approve_read": true,
+    "auto_approve_writes_to": [
+      "*.md",
+      "*.txt",
+      "*.json",
+      "*.yaml",
+      "*.yml",
+      "*.toml"
+    ],
+    "require_approval_for": [
+      "*.nix",
+      "*.tf",
+      "*.sh",
+      "*.py",
+      "Dockerfile",
+      "Makefile"
+    ],
+    "never_allow": [
+      "rm -rf /",
+      "sudo rm",
+      "mkfs",
+      "dd if="
+    ]
+  },
+  "preferences": {
+    "verbose_mode": false,
+    "show_thinking": false,
+    "confirm_destructive_actions": true,
+    "max_file_size_kb": 1024,
+    "excluded_directories": [
+      "node_modules",
+      ".git",
+      "target",
+      "dist",
+      "build",
+      ".nix-store"
+    ]
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ],
+        "matcher": "permission_prompt"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/homebrew/bin/dot-agent-deck hook",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

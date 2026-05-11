@@ -27,6 +27,13 @@ This project is a reboot of the original [workstation provisioning](https://gith
 - **Starship Prompt** - Multi-language support with Kubernetes, Docker, Git integration
 - **Modern CLI Tools** - ripgrep, fd, bat, eza, zoxide, and more
 
+### 🤖 AI Assistant Configuration
+
+- **Claude Skills** - Auto-discovered reusable skills for common development tasks
+- **Personal Preferences** - Coding style, language preferences, and workflows
+- **Methodology-Focused** - General best practices for Terraform, Kubernetes, Infrastructure
+- **Git-Managed** - All AI configurations version-controlled and reproducible
+
 ## 📁 Architecture
 
 This configuration uses a **modular, cross-platform approach** with automatic username detection for maximum portability:
@@ -68,7 +75,7 @@ graph LR
 
 > 📖 **Detailed Architecture**: See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for comprehensive diagrams and technical details
 > 🛠️ **Tools Reference**: See [TOOLS.md](./docs/TOOLS.md) for complete tool documentation and usage examples
-> 📋 **Task Automation**: See [TASKS.md](./docs/TASKS.md) for common tasks and automation workflows
+> 🤖 **AI Assistant Setup**: See [agentic/README.md](./agentic/README.md) for Claude configuration and skills
 
 ## 🚀 Quick Start
 
@@ -77,6 +84,7 @@ graph LR
 - **Universal Compatibility**: Works on any supported architecture
 - [Nix](https://nixos.org/download.html) installed with flakes enabled
 - [Home-Manager](https://github.com/nix-community/home-manager) as a flake
+- [devbox](https://www.jetify.com/devbox) (optional) — pins `go-task`; run `devbox shell` to enter the environment
 
    ```bash
    git clone https://github.com/pampatzoglou/home-manager.git ~/.config/home-manager
@@ -166,11 +174,11 @@ shellAliases = {
 
 ## 🔧 Module Breakdown
 
-This configuration consists of **11 active modules**:
+This configuration consists of the following active modules:
 
 | Module | Purpose | Key Features |
 |--------|---------|--------------|
-| `packages.nix` | Package orchestration | Imports 7 category-specific package modules (147 total packages) |
+| `packages.nix` | Package orchestration | Imports 8 category-specific package modules (147 total packages) |
 | `packages/core.nix` | Core utilities | System tools, modern CLI replacements |
 | `packages/development.nix` | Development tools | Editors, LSPs, formatters, testing tools |
 | `packages/kubernetes.nix` | Kubernetes ecosystem | kubectl, helm, k9s, and 20+ K8s tools |
@@ -178,6 +186,7 @@ This configuration consists of **11 active modules**:
 | `packages/security.nix` | Security & secrets | Trivy, Vault, GPG, compliance tools |
 | `packages/observability.nix` | Monitoring & data | Grafana, PostgreSQL, Kafka tools |
 | `packages/productivity.nix` | Daily tools | Terminal, browser, Git workflow |
+| `packages/agentic.nix` | AI tooling | Packages for agentic/AI workflows |
 | `zsh.nix` | Shell environment | Aliases, functions, history settings |
 | `starship.nix` | Prompt design | Multi-language, Git, cloud integration |
 | `git.nix` | Version control | Security, aliases, global gitignore |
@@ -186,6 +195,7 @@ This configuration consists of **11 active modules**:
 | `security.nix` | Security configs | GPG, SSH, direnv with hardening |
 | `kitty.nix` | Terminal | Solarized Dark theme, fonts, keybindings |
 | `kubernetes.nix` | K8s configuration | Kubectl plugins, krew automation |
+| `claude.nix` | AI assistant config | Auto-discovered skills, personal preferences |
 | `gc.nix` | Garbage collection | Automatic cleanup of old generations |
 
 ## 📝 License
@@ -198,26 +208,49 @@ This configuration is provided as-is for educational and personal use. Feel free
 - [Nix](https://nixos.org/) community
 - All the amazing tool developers whose packages are included
 
+## 🤖 AI Assistant Configuration
+
+This configuration includes a comprehensive setup for Claude AI Assistant with auto-discovered skills and personal preferences.
+
+See [docs/CLAUDE.md](./docs/CLAUDE.md) for directory structure, skill management, and deployment details.
+
+### Available Skills
+
+- **argo-applicationset** - ArgoCD ApplicationSet authoring
+- **bootstrap** - Scaffold a new project repository
+- **code-review** - Security, quality, performance checklists
+- **debugging** - Systematic 6-step debugging methodology
+- **devbox** - Reproducible dev environments via Nix
+- **document** - Generate and update documentation suites
+- **cicd** - Interactive CI/CD workflow generation
+- **dockerfile** - 3-stage Dockerfile generation
+- **github-actions** - GitHub Actions CI via Taskfile + devbox
+- **helm** - Helm chart authoring and values layering
+- **kubernetes** - Kubernetes manifests, Helm, ArgoCD/GitOps
+- **skaffold** - Skaffold + kind local development loop
+- **taskfile** - Standard Taskfile conventions
+- **terraform** - Terraform/HCL review and planning
+- **tidy** - Hunt for mechanical inconsistencies (missing separators, empty vars, whitespace drift)
+- **prune** - Find dead/unused code and AI context bloat (redundant docs, verbose comments, duplicate files)
+- **git** - Conventional commit messages and PR overview descriptions
+
+For detailed documentation, see [agentic/README.md](./agentic/README.md).
+
 ---
 
 **⚡ Quick Commands:**
 
 ```bash
-# Check for issues
-nix flake check
+task audit        # Run all checks before committing
+task switch       # Apply configuration changes
+task update       # Update all flake inputs
+task gc:safe      # Garbage collect (keeps last 30 days)
+task rollback     # Revert to previous generation
+task --list       # Show all available tasks
 
-# Update packages
-nix flake update
-
-# Rollback changes
-home-manager generations
-home-manager switch --flake . --switch-generation <id>
+commit            # AI-drafted conventional commit message (git add first)
+pr-desc           # AI-drafted PR overview description
 ```
-
-# 📝 DEVELOPER IDENTIFICATION
-Customizations are stored in the [DEVELOPER IDENTITY](./docs/DEVELOPER_IDENTITY.md).
-
----
 
 ## 🗑️ Cleanup & Maintenance
 
@@ -227,21 +260,10 @@ This configuration automatically cleans up old Home-Manager generations to save 
 
 - **Frequency**: Weekly (configurable in `modules/gc.nix`)
 - **Retention**: Keeps generations for 7 days
-- **Manual Trigger**: Run `nix-collect-garbage --delete-older-than 7d`
+- **Manual Trigger**: `task gc:safe`
 
-**Customize retention period** by editing `modules/gc.nix`:
-```nix
-nix.gc = {
-  automatic = true;
-  dates = "daily";  # Options: "daily", "weekly", "monthly"
-  options = "--delete-older-than 14d";  # Change to 14 days, 30d, etc.
-};
-```
+### 🆘 Recovery & Removal
 
-### 🍎 macOS Users
+For macOS Nix issues after system updates, see [docs/recovery/MACOS_TROUBLESHOOTING.md](./docs/recovery/MACOS_TROUBLESHOOTING.md).
 
-If you experience issues after macOS system updates (broken `nix-shell`, daemon errors, SDK problems), see the [macOS Recovery Guide](./docs/MACOS_RECOVERY.md) for comprehensive troubleshooting steps.
-
-### 🗑️ Complete Removal
-
-For instructions on removing nix and resetting your system, see [PURGE.md](./docs/PURGE.md).
+For full Nix removal, see [docs/recovery/NIX_REMOVAL.md](./docs/recovery/NIX_REMOVAL.md).

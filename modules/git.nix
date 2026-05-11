@@ -34,7 +34,6 @@
     .env.*
     *.secret
     *.secrets.*
-    secrets.yaml
     *.key
     *.pem
     *.crt
@@ -44,7 +43,6 @@
     *.pfx
     *.backup
     *.bak
-    *.vault.yml
     .vault-token
 
     # --- Node ---
@@ -136,6 +134,14 @@
     *.qcow2
     *.iso
     *.box
+
+    # --- Agentic / AI ---
+    **/.claude/settings.local.*
+    **/.codex/
+    **/.aider*
+    **/.continue/
+    **/.cursor/
+    **/.warp/
 
     # --- Misc ---
     .history

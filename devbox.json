@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.7/.schema/devbox.schema.json",
+  "packages": [
+    "go-task@3.43.3"
+  ],
+  "shell": {
+    "init_hook": [],
+    "scripts": {
+      "audit": "task audit",
+      "switch": "task switch"
+    }
+  }
+}
