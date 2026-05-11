@@ -1,0 +1,9 @@
+# Nix
+result
+result-*
+
+# Devbox
+.devbox/
+
+# direnv
+.direnv/

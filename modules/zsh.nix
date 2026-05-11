@@ -1,9 +1,21 @@
 { ... }:
 
 {
+  programs.zoxide = {
+    enable = true;
+    enableZshIntegration = true;
+  };
+
   programs.zsh = {
     enable = true;
     enableCompletion = true;
+
+    envExtra = ''
+      # Source nix-daemon to set up PATH for nix-profile and nix default bins
+      if [ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]; then
+        . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+      fi
+    '';
     syntaxHighlighting.enable = true;
     autosuggestion.enable = true;
 
@@ -193,14 +205,55 @@
       setopt AUTO_PUSHD
       setopt PUSHD_IGNORE_DUPS
       setopt PUSHD_SILENT
-      setopt CORRECT
+      setopt NO_CORRECT
       setopt EXTENDED_GLOB
       setopt NO_CASE_GLOB
       setopt NUMERIC_GLOB_SORT
 
-      # Initialize starship prompt
-      eval "$(starship init zsh)"
-      eval "$(zoxide init zsh)"
+      # AI-powered commit message (requires claude CLI)
+      commit() {
+        local staged
+        staged=$(git diff --staged)
+        if [[ -z "$staged" ]]; then
+          echo "Nothing staged. Run: git add <files>" >&2
+          return 1
+        fi
+        echo "$staged" | claude -p \
+          "Analyse this git diff and output a single ready-to-run git commit command.
+Rules:
+- Conventional Commits: type(scope): subject
+- type: feat|fix|docs|refactor|chore|ci|style|test|perf
+- scope: directory or module name (not a filename), omit if cross-cutting
+- subject: imperative mood, lowercase, no period, max 72 chars
+- add a second -m body only if the WHY is non-obvious from the diff
+- output ONLY the git commit command, nothing else"
+      }
+
+      # AI-powered PR description (requires claude CLI)
+      # Usage: pr-desc [base-branch]  (default: main)
+      pr-desc() {
+        local base=''${1:-main}
+        local content
+        content=$(git log "$base..HEAD" --oneline 2>/dev/null && git diff "$base..HEAD" 2>/dev/null)
+        if [[ -z "$content" ]]; then
+          echo "No commits ahead of $base" >&2
+          return 1
+        fi
+        echo "$content" | claude -p \
+          "Write a GitHub PR description for these changes.
+Structure (markdown):
+## What
+One paragraph. High-level overview — not file-by-file, not a commit list.
+
+## Why
+One paragraph. The problem solved or goal achieved.
+
+## Notable changes
+3-6 bullets max. Only non-obvious decisions or risk areas. Omit section if nothing remarkable.
+
+Rules: no changelog, no commit list, no boilerplate. Output only the markdown."
+      }
+
     '';
   };
 }

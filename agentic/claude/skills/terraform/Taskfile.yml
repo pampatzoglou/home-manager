@@ -4,18 +4,16 @@ version: '3'
 # Terraform Taskfile
 #
 # READ-ONLY tasks (safe for AI assistants and automation):
-#   check, fmt, validate, lint, audit, init, <env>:plan, docs, clean
+#   check, fmt, validate, lint, audit, plan, plan:<env>, docs, clean
 #
 # MUTATING tasks (run manually after reviewing the plan):
-#   <env>:apply, destroy
+#   apply:<env>, destroy:<env>
 #
+# Bare `plan` iterates all environments: dev → staging → prod.
+# Bare `apply` / `destroy` do not exist — an explicit env is required
+# to prevent accidental multi-environment mutations.
 # CI runs plans on every PR; applies are gated behind manual approval.
-# Audit runs in CI and locally — strict mode, non-zero exit on findings.
 # ──────────────────────────────────────────────────────────────────────────
-
-# Default environment, overridable: `task plan TF_ENV=prod`
-env:
-  TF_ENV: '{{.TF_ENV | default "dev"}}'
 
 tasks:
   default:
@@ -24,7 +22,7 @@ tasks:
       - task --list
 
   init:
-    desc: Initialize Terraform with backend config for the chosen environment
+    desc: Initialize Terraform with backend config for an environment
     cmds:
       - terraform init -backend-config=backend-{{.TF_ENV}}.hcl -reconfigure
 
@@ -99,30 +97,105 @@ tasks:
       - task: lint
       - task: audit
 
+  # ── Plan — read-only, bare task iterates all environments ────────────────
+
   plan:
-    desc: 'Plan changes for an environment (usage: task plan TF_ENV=prod)'
-    deps: [init, validate]
+    desc: Plan all environments (dev → staging → prod)
     cmds:
+      - task: plan:dev
+      - task: plan:staging
+      - task: plan:prod
+
+  plan:dev:
+    desc: Plan changes for dev
+    cmds:
+      - task: _plan
+        vars: { TF_ENV: dev }
+
+  plan:staging:
+    desc: Plan changes for staging
+    cmds:
+      - task: _plan
+        vars: { TF_ENV: staging }
+
+  plan:prod:
+    desc: Plan changes for production
+    cmds:
+      - task: _plan
+        vars: { TF_ENV: prod }
+
+  _plan:
+    internal: true
+    cmds:
+      - task: init
+        vars: { TF_ENV: "{{.TF_ENV}}" }
+      - terraform validate
       - terraform plan -var-file=vars/{{.TF_ENV}}.hcl -out=plan-{{.TF_ENV}}.tfplan
       - echo "✓ Plan generated for {{.TF_ENV}} → plan-{{.TF_ENV}}.tfplan"
 
-  apply:
-    desc: 'Apply a saved plan (usage: task apply TF_ENV=prod)'
-    deps: [init]
+  # ── Apply — destructive, explicit env required ───────────────────────────
+
+  apply:dev:
+    desc: Apply changes for dev (run plan:dev first)
+    cmds:
+      - task: _apply
+        vars: { TF_ENV: dev }
+
+  apply:staging:
+    desc: Apply changes for staging (run plan:staging first)
+    cmds:
+      - task: _apply
+        vars: { TF_ENV: staging }
+
+  apply:prod:
+    desc: Apply changes for production (run plan:prod first)
+    cmds:
+      - task: _apply
+        vars: { TF_ENV: prod }
+
+  _apply:
+    internal: true
     preconditions:
       - sh: test -f plan-{{.TF_ENV}}.tfplan
-        msg: 'No plan file found for {{.TF_ENV}}. Run `task plan TF_ENV={{.TF_ENV}}` first.'
+        msg: 'No plan file found for {{.TF_ENV}}. Run `task plan:{{.TF_ENV}}` first.'
     cmds:
+      - task: init
+        vars: { TF_ENV: "{{.TF_ENV}}" }
       - terraform apply plan-{{.TF_ENV}}.tfplan
       - rm plan-{{.TF_ENV}}.tfplan
       - echo "✓ Applied changes for {{.TF_ENV}}"
 
-  destroy:
-    desc: 'Destroy infrastructure (usage: task destroy TF_ENV=dev)'
-    deps: [init]
-    prompt: 'Destroy ALL resources in {{.TF_ENV}}. Are you absolutely sure?'
+  # ── Destroy — destructive, explicit env required, confirmation prompt ────
+
+  destroy:dev:
+    desc: Destroy dev infrastructure
+    prompt: 'Destroy ALL resources in dev. Are you absolutely sure?'
     cmds:
+      - task: _destroy
+        vars: { TF_ENV: dev }
+
+  destroy:staging:
+    desc: Destroy staging infrastructure
+    prompt: 'Destroy ALL resources in staging. Are you absolutely sure?'
+    cmds:
+      - task: _destroy
+        vars: { TF_ENV: staging }
+
+  destroy:prod:
+    desc: Destroy production infrastructure
+    prompt: 'Destroy ALL resources in prod. Are you absolutely sure?'
+    cmds:
+      - task: _destroy
+        vars: { TF_ENV: prod }
+
+  _destroy:
+    internal: true
+    cmds:
+      - task: init
+        vars: { TF_ENV: "{{.TF_ENV}}" }
       - terraform destroy -var-file=vars/{{.TF_ENV}}.hcl
+
+  # ── Utilities ─────────────────────────────────────────────────────────────
 
   docs:
     desc: Regenerate module READMEs with terraform-docs
@@ -141,41 +214,3 @@ tasks:
       - rm -f plan-*.tfplan
       - rm -rf audit-results
       - echo "✓ Local artifacts cleaned"
-
-  # ── Environment-specific shortcuts ───────────────────────────────────────
-
-  dev:plan:
-    desc: Plan changes for dev
-    cmds:
-      - task: plan
-        vars: { TF_ENV: dev }
-
-  dev:apply:
-    desc: Apply changes for dev
-    cmds:
-      - task: apply
-        vars: { TF_ENV: dev }
-
-  staging:plan:
-    desc: Plan changes for staging
-    cmds:
-      - task: plan
-        vars: { TF_ENV: staging }
-
-  staging:apply:
-    desc: Apply changes for staging
-    cmds:
-      - task: apply
-        vars: { TF_ENV: staging }
-
-  prod:plan:
-    desc: Plan changes for production
-    cmds:
-      - task: plan
-        vars: { TF_ENV: prod }
-
-  prod:apply:
-    desc: Apply changes for production (review the plan first!)
-    cmds:
-      - task: apply
-        vars: { TF_ENV: prod }

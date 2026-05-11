@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 {
   home.packages = with pkgs; [
@@ -38,13 +38,13 @@
     # Core languages
     bash-language-server
     pyright
-    gopls
+    (lib.hiPrio gopls) # gopls 0.21+ and gotools both ship `modernize`; prefer gopls's copy
     rust-analyzer
 
     # Data / configs
     taplo
     nil
-    nodePackages.vscode-langservers-extracted # Provides JSON, HTML, CSS, ESLint LSPs
+    vscode-langservers-extracted # Provides JSON, HTML, CSS, ESLint LSPs
 
     # Docs & system
     marksman

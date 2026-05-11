@@ -1,3 +1,9 @@
+---
+name: debugging
+description: Systematic debugging methodology: reproduce, isolate, hypothesize, test, fix, verify. Includes checklists for environment, concurrency, resources, data, and Nix-specific issues.
+user-invocable: true
+---
+
 # Debugging Skill
 
 ## Purpose

@@ -7,7 +7,7 @@ Essential commands and workflows for managing this home-manager configuration.
 ### Deploy Changes
 ```bash
 # Specify your username explicitly in the flake reference
-home-manager switch --flake .#pantelis --impure
+home-manager switch --flake .#foo --impure
 
 # Or use dynamic substitution
 home-manager switch --flake .#$(whoami) --impure
@@ -42,36 +42,15 @@ home-manager switch --switch-generation <number>
 
 ## 🤖 Claude AI Skills
 
-### Add New Skill
 ```bash
-# 1. Create skill file
-vim agentic/claude/skills/my-skill.md
-
-# 2. Stage in git (required!)
-git add agentic/claude/skills/my-skill.md
-
-# 3. Deploy
-home-manager switch -b backup --impure
-
-# 4. Verify
-ls ~/.claude/skills/
+# Add a new skill
+mkdir agentic/claude/skills/my-skill
+vim agentic/claude/skills/my-skill/SKILL.md
+git add agentic/claude/skills/my-skill/
+task switch
 ```
 
-### Edit Existing Skill
-```bash
-# 1. Edit
-vim agentic/claude/skills/debugging.md
-
-# 2. Deploy (file already tracked)
-home-manager switch --flake . --impure
-```
-
-### Current Skills
-- `code-review.md` - Security, quality, performance checklists
-- `debugging.md` - 6-step systematic debugging
-- `infrastructure.md` - DevOps, monitoring, CI/CD
-- `kubernetes.md` - Platform-aware K8s management
-- `terraform.md` - General IaC methodology
+See [README.md](../README.md#-ai-assistant-configuration) for the full skills list and [docs/CLAUDE.md](./CLAUDE.md) for detailed skill management.
 
 ## 📦 Package Management
 
@@ -199,16 +178,22 @@ nix-collect-garbage
 
 ## 📝 Git Workflow
 
-### Stage and Deploy
+### AI-assisted commit
 ```bash
-# Stage all changes
+git add <files>   # stage changes first
+commit            # Claude drafts a conventional commit message, you confirm
+```
+
+### AI-assisted PR description
+```bash
+pr-desc           # compares against main, outputs What/Why/Notable changes
+pr-desc develop   # compare against a different base branch
+```
+
+### Manual commit
+```bash
 git add -A
-
-# Deploy without committing
-home-manager switch -b backup --impure
-
-# Commit when satisfied
-git commit -m "Description of changes"
+git commit -m "feat(scope): description"
 ```
 
 ### View Changes
@@ -255,7 +240,6 @@ readlink ~/.claude/CLAUDE.md
 - **Architecture**: `docs/ARCHITECTURE.md`
 - **Claude Setup**: `docs/CLAUDE.md`
 - **Tools Reference**: `docs/TOOLS.md`
-- **Tasks Guide**: `docs/TASKS.md`
 
 ## 💡 Pro Tips
 
@@ -316,7 +300,7 @@ home-manager switch --flake . --impure
 ```
 
 ### Nix Issues (macOS)
-See `docs/MACOS_RECOVERY.md` for comprehensive troubleshooting.
+See [docs/recovery/MACOS_TROUBLESHOOTING.md](./recovery/MACOS_TROUBLESHOOTING.md) for comprehensive troubleshooting.
 
 ---
 

@@ -1,3 +1,9 @@
+---
+name: code-review
+description: Perform thorough code reviews covering security, quality, performance, testing, and documentation. Includes Nix-specific checks.
+user-invocable: true
+---
+
 # Code Review Skill
 
 ## Purpose

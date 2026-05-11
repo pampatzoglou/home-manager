@@ -1,12 +1,21 @@
 ---
-name: generate-cicd
+name: cicd
 description: Generate intelligent CI/CD workflows through interactive conversation by analyzing repository structure and user preferences
 user-invocable: true
+requires: [github-actions, taskfile, devbox]
 ---
 
 # Generate CI/CD Workflows
 
 Generate appropriate CI/CD workflows for the current project through an interactive conversation. This prompt analyzes your entire repository, presents findings, asks about workflow preferences, and generates workflows based on your confirmed choices.
+
+## Load first
+
+Before generating any workflow, load these skills:
+
+- `github-actions` — core pattern (checkout + devbox + `devbox run task X`), security hardening, OIDC, matrix conventions, caching
+- `taskfile` — `action:env` naming and standard task set the workflow will call
+- `devbox` — tool pinning and CI integration via `devbox-install-action`
 
 ## Instructions
 
@@ -197,7 +206,7 @@ Check for existing CI configuration. If found:
 
 - Check for Dockerfile and container configuration
 - Search for registry references in existing CI, automation, or docs
-- If no Dockerfile but project could benefit from containerization, suggest using `/generate-dockerfile` prompt
+- If no Dockerfile but project could benefit from containerization, suggest using `/dockerfile` prompt
 
 #### 1.5 Branching and Release Strategy
 
@@ -307,3 +316,15 @@ Provide:
 ### Step 7: Validate
 
 After user approves, commit the workflows following the project's established process. Trigger the workflows, monitor runs, and iterate on any failures until they pass.
+
+## Companion skills — offer after completing
+
+Once the workflows are committed and passing, check the repo and offer whichever of these are missing or incomplete:
+
+| Skill | Offer when |
+|-------|-----------|
+| `devbox` | No `devbox.json` in the repo root (CI assumes devbox — this is a blocker if missing) |
+| `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` in the repo root (CI calls tasks — this is a blocker if missing) |
+| `document` | No `docs/ARCHITECTURE.md`, or existing README doesn't describe the CI/CD pipeline |
+
+Ask as a single grouped question — not mid-task, not separately for each.

@@ -10,5 +10,6 @@
     ./packages/security.nix
     ./packages/observability.nix
     ./packages/productivity.nix
+    ./packages/agentic.nix
   ];
 }

@@ -2,10 +2,7 @@
 
 This documentation covers the setup, usage, and maintenance of Claude AI Assistant configuration managed through home-manager.
 
-> ⚠️ **Important:** All `home-manager` commands for this flake require the `--impure` flag due to auto-detection of username via `builtins.getEnv "USER"`.
-> 
-> **Recommended:** `home-manager switch -b backup --impure` (creates backups)  
-> **Alternative:** `home-manager switch --flake . --impure` (no backups)
+> ⚠️ **Important:** Always use `task switch` to apply changes — it includes the required `--impure` flag automatically.
 
 ## Overview
 
@@ -15,24 +12,31 @@ The Claude configuration provides a declarative, version-controlled approach to 
 
 ```
 home-manager/
-├── agentic/                          # AI assistant configurations
-│   ├── README.md                     # Agentic directory overview
-│   └── claude/                       # Claude-specific configuration
+├── agentic/
+│   └── claude/
 │       ├── CLAUDE.md                 # Personal coding preferences
-│       ├── README.md                 # Claude-specific docs
 │       ├── settings.json.template    # Permission rules template
-│       └── skills/                   # Reusable skills (auto-discovered)
-│           ├── code-review.md
-│           ├── debugging.md
-│           ├── infrastructure.md
-│           ├── kubernetes.md
-│           └── terraform.md
-│
-├── .claude/                          # Project-specific overrides
-│   └── CLAUDE.md                     # Home-manager project conventions
-│
+│       └── skills/                   # Auto-discovered skill directories
+│           ├── argo-applicationset/
+│           ├── bootstrap/
+│           ├── cicd/
+│           ├── code-review/
+│           ├── debugging/
+│           ├── devbox/
+│           ├── document/
+│           ├── dockerfile/
+│           ├── github-actions/
+│           ├── helm/
+│           ├── kubernetes/
+│           ├── prune/
+│           ├── skaffold/
+│           ├── taskfile/
+│           ├── terraform/
+│           └── tidy/
+├── .claude/
+│   └── CLAUDE.md                     # Project-specific conventions
 └── modules/
-    └── claude.nix                    # Deployment module (auto-discovery)
+    └── claude.nix                    # Auto-discovery deployment module
 ```
 
 ## Deployment Mapping
@@ -42,7 +46,7 @@ Source files are automatically deployed to your home directory:
 | Source | Deployed To | Purpose |
 |--------|-------------|---------|
 | `agentic/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | Personal coding preferences |
-| `agentic/claude/skills/*.md` | `~/.claude/skills/*.md` | Auto-discovered skills |
+| `agentic/claude/skills/*/` | `~/.claude/skills/*/` | Auto-discovered skill directories |
 | `agentic/claude/settings.json.template` | _(manual merge)_ | Permission rules template |
 
 ## Configuration Files
@@ -77,80 +81,29 @@ Contains your personal coding style, language preferences, and communication sty
 
 Markdown files or directories containing structured approaches to common development tasks. These are reference documents that Claude can use to perform tasks consistently.
 
-**Organization:** Skills can be organized as:
-- **Flat files** - Single `.md` file for simple skills (e.g., `code-review.md`)
-- **Directories** - Folder with multiple files for complex skills (e.g., `terraform/`, `kubernetes/`)
+Each skill is a directory under `agentic/claude/skills/` containing a `SKILL.md` entry point and any supporting files. All directories are auto-discovered and deployed recursively.
 
 **Current Skills:**
 
-#### code-review.md
-Comprehensive code review checklist covering:
-- Security vulnerabilities and best practices
-- Code quality and maintainability standards
-- Performance considerations
-- Testing coverage requirements
-- Documentation completeness
-- Language-specific considerations (Nix, etc.)
-
-#### debugging.md (Flat File)
-Systematic debugging methodology:
-- 6-step process: Reproduce → Isolate → Hypothesize → Test → Fix → Verify
-- Common issues checklist (environment, concurrency, resources, data, permissions)
-- Tools and techniques for different scenarios
-- Language-specific debugging tips (Nix, etc.)
-- Prevention strategies
-
-#### infrastructure.md (Flat File)
-Infrastructure and DevOps best practices:
-- Core principles (declarative, immutable, version controlled, automated)
-- Terraform patterns and best practices
-- Kubernetes deployment strategies
-- Monitoring and observability (metrics, logs, traces)
-- Security and compliance guidelines
-- CI/CD pipeline design
-- Disaster recovery procedures
-
-#### kubernetes/ (Directory Structure)
-Kubernetes resource management with multiple focused documents:
-- **SKILL.md** - Main Kubernetes skill overview
-- **authoring-helm-charts.md** - Helm chart best practices
-- **resource-standards.md** - K8s resource standards
-- **reviewing-manifests.md** - Manifest review checklist
-- **troubleshooting.md** - K8s troubleshooting guide
-- **taskfile.md** - Task automation patterns
-- **devbox.md** - Devbox configuration
-- **skaffold.md** - Skaffold workflows
-- **github-actions.md** - CI/CD integration
-- **team-conventions.md** - Team-specific patterns
-
-Key topics:
-- Repository structure conventions from actual projects
-- GitOps with ArgoCD sync wave strategies
-- Helm chart best practices and patterns
-- Security contexts and RBAC
-- High availability configurations
-- Operator-based resources (databases, messaging)
-- Platform integration (TLS, secrets, DNS, monitoring)
-
-#### terraform/ (Directory Structure)
-Terraform infrastructure as code with example configurations:
-- **SKILL.md** - Main Terraform methodology
-- **devbox.json** - Example devbox configuration
-- **Taskfile.yml** - Example task automation
-- **github-actions.yml** - Example CI/CD pipeline
-- **audit-triage.md** - Security audit procedures
-- **.pre-commit-config.yaml** - Pre-commit hooks
-- **.gitignore** - Terraform-specific gitignore
-
-Key topics:
-- Core principles and best practices
-- Project structure and organization
-- Variable design and validation
-- Module composition patterns
-- State management strategies
-- Workflow methodology (dev, team, promotion)
-- Testing and validation approaches
-- Troubleshooting methodology
+| Skill | Purpose |
+|-------|---------|
+| `argo-applicationset` | ArgoCD ApplicationSet authoring |
+| `bootstrap` | Scaffold a new project repository |
+| `cicd` | Interactive CI/CD workflow generation |
+| `code-review` | Security, quality, performance checklists |
+| `debugging` | Systematic 6-step debugging methodology |
+| `devbox` | Reproducible dev environments via Nix |
+| `document` | Generate and update documentation suites |
+| `dockerfile` | 3-stage Dockerfile generation |
+| `github-actions` | GitHub Actions CI via Taskfile + devbox |
+| `helm` | Helm chart authoring and values layering |
+| `kubernetes` | Kubernetes manifests, Helm, ArgoCD/GitOps |
+| `prune` | Find dead/unused code and AI context bloat |
+| `skaffold` | Skaffold + kind local development loop |
+| `taskfile` | Standard Taskfile conventions |
+| `terraform` | Terraform/HCL review and planning |
+| `tidy` | Hunt for mechanical inconsistencies |
+| `git` | Conventional commit messages and PR overview descriptions |
 
 ### settings.json.template - Permission Rules
 
@@ -169,37 +122,17 @@ The `modules/claude.nix` module automatically discovers and deploys all `.md` fi
 
 ### How It Works
 
-1. **Directory Scan**: Reads all entries in `agentic/claude/skills/`
-2. **Filter**: Selects `.md` files and non-hidden directories
-3. **Map**: Creates deployment mappings to `~/.claude/skills/`
-   - Flat files: Direct copy
-   - Directories: Recursive copy (preserves structure)
-4. **Deploy**: Symlinks files/directories to Nix store during activation
+1. `modules/claude.nix` reads all non-hidden directories in `agentic/claude/skills/`
+2. Each directory is deployed recursively to `~/.claude/skills/<name>/`
+3. Symlinks point into the Nix store — atomic, rollback-capable, immutable
 
-### Supported Structures
-
-**Flat Files:**
 ```
-skills/code-review.md → ~/.claude/skills/code-review.md
-skills/debugging.md   → ~/.claude/skills/debugging.md
-```
-
-**Directories:**
-```
-skills/terraform/     → ~/.claude/skills/terraform/ (recursive)
+skills/terraform/     → ~/.claude/skills/terraform/
   ├── SKILL.md
-  ├── devbox.json
   └── Taskfile.yml
 ```
 
-### Benefits
-
-- ✅ **No manual configuration**: Add skills without editing Nix modules
-- ✅ **Scalable**: Add 1 or 100 skills with the same workflow
-- ✅ **Flexible**: Support both simple and complex skill structures
-- ✅ **Maintainable**: Skills are just markdown files or organized folders
-- ✅ **Safe**: Git tracking ensures intentional deployments
-- ✅ **Clean**: No boilerplate in Nix code
+Files must be git-tracked (or staged) for Nix flakes to see them.
 
 ## Usage
 
@@ -207,74 +140,28 @@ skills/terraform/     → ~/.claude/skills/terraform/ (recursive)
 
 Skills are automatically discovered - no module editing required!
 
-**Option 1: Simple Flat File** (for single-topic skills)
-
 ```bash
-# 1. Create skill file
-vim agentic/claude/skills/my-new-skill.md
-
-# 2. Stage in git (required for Nix flakes)
-git add agentic/claude/skills/my-new-skill.md
-
-# 3. Deploy (--impure is required!)
-home-manager switch --flake . --impure
-
-# 4. Verify deployment
-ls -la ~/.claude/skills/
-```
-
-**Option 2: Directory Structure** (for complex multi-document skills)
-
-```bash
-# 1. Create directory and files
-mkdir -p agentic/claude/skills/my-skill
-cat > agentic/claude/skills/my-skill/SKILL.md << 'EOF'
-# My Skill
-Main skill documentation here
-EOF
-
-# Add supporting files
-vim agentic/claude/skills/my-skill/examples.md
-vim agentic/claude/skills/my-skill/devbox.json
-vim agentic/claude/skills/my-skill/Taskfile.yml
-
-# 2. Stage all files in git
+mkdir agentic/claude/skills/my-skill
+vim agentic/claude/skills/my-skill/SKILL.md
 git add agentic/claude/skills/my-skill/
-
-# 3. Deploy
-home-manager switch --flake . --impure
-
-# 4. Verify deployment
-ls -la ~/.claude/skills/my-skill/
+task switch
+ls ~/.claude/skills/my-skill/
 ```
 
-**Important:** Files must be tracked (or staged) in git for Nix flakes to see them. Untracked files will not be deployed.
+Files must be git-tracked or staged before running `task switch`.
 
 ### Editing Existing Skills
 
 ```bash
-# 1. Edit the skill
-vim agentic/claude/skills/debugging.md
-
-# 2. Changes are already tracked (file exists in git)
-# 3. Deploy
-home-manager switch --flake . --impure
-
-# 4. View deployed version
-cat ~/.claude/skills/debugging.md
+vim agentic/claude/skills/debugging/SKILL.md
+task switch
 ```
 
 ### Updating Personal Preferences
 
 ```bash
-# 1. Edit preferences
 vim agentic/claude/CLAUDE.md
-
-# 2. Deploy
-home-manager switch --flake . --impure
-
-# 3. Verify
-cat ~/.claude/CLAUDE.md
+task switch
 ```
 
 ### Updating Settings
@@ -372,10 +259,10 @@ Step-by-step approach or structured process.
 git status agentic/claude/skills/
 
 # If untracked, stage it
-git add agentic/claude/skills/your-skill.md
+git add agentic/claude/skills/your-skill/
 
-# Rebuild (--impure is required!)
-home-manager switch --flake . --impure
+# Rebuild
+task switch
 
 # Verify
 ls -la ~/.claude/skills/
@@ -426,16 +313,11 @@ attribute 'packages.aarch64-darwin.homeConfigurations."pantelis".activationPacka
 # Wrong - will fail
 home-manager switch
 
-# Correct - will work
-home-manager switch --flake . --impure
-
-# Also correct - with backups (recommended)
-home-manager switch -b backup --impure
+# Correct - use task which includes --impure automatically
+task switch
 ```
 
-**Explanation:** Without `--impure`, `builtins.getEnv "USER"` returns an empty string, so Nix looks for `homeConfigurations.""` which doesn't exist.
-
-**Note:** The `-b backup` flag creates backups of existing files before replacing them, which is recommended for safety.
+**Explanation:** Without `--impure`, `builtins.getEnv "USER"` returns empty string and the flake attribute isn't found.
 
 ## Maintenance
 
@@ -445,10 +327,10 @@ Keep skills current with your evolving practices:
 
 ```bash
 # Review and update skills quarterly
-vim agentic/claude/skills/terraform.md
+vim agentic/claude/skills/terraform/SKILL.md
 
 # Deploy changes
-home-manager switch --flake . --impure
+task switch
 ```
 
 ### Version Control
@@ -460,10 +342,10 @@ All Claude configuration is in git:
 git log -- agentic/claude/
 
 # See what changed in a skill
-git diff agentic/claude/skills/kubernetes.md
+git diff agentic/claude/skills/kubernetes/
 
 # Revert a change
-git checkout HEAD~1 -- agentic/claude/skills/debugging.md
+git checkout HEAD~1 -- agentic/claude/skills/debugging/
 ```
 
 ### Backup and Restore
@@ -476,7 +358,7 @@ git push origin main
 
 # Restore on new machine
 git clone https://github.com/your-user/home-manager.git ~/.config/home-manager
-home-manager switch --flake . --impure
+task switch
 ```
 
 ## Advanced Topics
@@ -550,9 +432,9 @@ You can explicitly reference skills in conversations:
 ### Contextual Usage
 
 Claude may automatically apply relevant skills based on the task:
-- Code review → code-review.md
-- Infrastructure work → terraform.md or kubernetes.md
-- Troubleshooting → debugging.md
+- Code review → `code-review`
+- Infrastructure work → `terraform` or `kubernetes`
+- Troubleshooting → `debugging`
 
 ## Resources
 

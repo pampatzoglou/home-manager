@@ -140,8 +140,7 @@ graph LR
         base["`**base.nix**
         • Cross-platform
         • Core modules
-        • Universal settings
-        • 11 active modules`"]
+        • Universal settings`"]
     end
 
     subgraph "🔧 Core Infrastructure"
@@ -334,46 +333,6 @@ graph TD
     style independent fill:#f3e5f5
 ```
 
-## 🚀 User Journey
-
-```mermaid
-journey
-    title Home-Manager Setup Journey
-    section Discovery
-      Find Configuration: 5: User
-      Read Documentation: 4: User
-      Check Requirements: 3: User
-    section Setup
-      Clone Repository: 5: User
-      Review Configuration: 4: User
-      Run First Switch: 3: User, System
-    section Configuration
-      Setup Git Identity: 4: User
-      Customize Packages: 5: User
-      Configure Applications: 4: User
-    section Daily Use
-      Use Shell Aliases: 5: User
-      Develop Projects: 5: User
-      Update Configuration: 4: User
-    section Maintenance
-      Update Packages: 3: User, System
-      Add New Tools: 4: User
-      Share Configuration: 5: User
-```
-
-## 📊 Key Metrics & Benefits
-
-```mermaid
-pie title Package Distribution (147 Total)
-    "Core Packages" : 30
-    "Development Tools" : 41
-    "Kubernetes Tools" : 21
-    "Infrastructure" : 16
-    "Security" : 23
-    "Observability" : 11
-    "Productivity" : 5
-```
-
 ## 🔧 Architecture Benefits
 
 ### ✨ **Modularity**
@@ -404,18 +363,3 @@ pie title Package Distribution (147 Total)
 - **Multi-System**: Support different architectures seamlessly
 - **Future-Proof**: Easy to adapt to new tools and requirements
 
----
-
-## 🤝 Contributing to Architecture
-
-When adding new modules or modifying the architecture:
-
-1. **Follow Module Pattern**: Single responsibility, clear dependencies
-2. **Update Diagrams**: Keep architecture documentation current
-3. **Test Multi-Platform**: Ensure changes work across all supported systems
-4. **Document Changes**: Update both README and ARCHITECTURE
-5. **Maintain Compatibility**: Preserve existing user workflows
-
----
-
-*This architecture enables a powerful, maintainable, and user-friendly Home-Manager configuration that scales from simple dotfile management to comprehensive development environment setup.*

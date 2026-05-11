@@ -1,11 +1,22 @@
 ---
 name: terraform
-description: Use whenever the user is working with Terraform or HashiCorp Configuration Language (HCL) — scaffolding a new IaC project, writing or refactoring modules, planning changes, validating code, debugging state issues, setting up CI/CD for Terraform, reading state from other Terraform repos, or reviewing existing .tf code. Triggers on mentions of terraform, .tf files, .tfvars, HCL, "infrastructure as code", devbox+terraform, or Taskfiles for IaC. Use this even when the user only mentions one piece (e.g. "write me a Taskfile for terraform") — the skill ensures the surrounding pieces (devbox, structure, docs) stay consistent. IMPORTANT: this skill operates in plan/validate/review mode only — it never applies infrastructure changes.
+description: Use whenever the user is working with Terraform or HashiCorp Configuration Language (HCL), or asks broadly about "infrastructure", observability strategy, disaster recovery, or cost optimization. Triggers on terraform, .tf files, .tfvars, HCL, "infrastructure as code", "infra", devbox+terraform, or Taskfiles for IaC. IMPORTANT: this skill operates in plan/validate/review mode only — it never applies infrastructure changes.
+user-invocable: true
+requires: [devbox, taskfile]
 ---
 
 # Terraform Infrastructure as Code
 
 A skill for writing, structuring, and operating Terraform projects. The skill is opinionated: it standardizes on **devbox** for tool versions, **go-task** for commands, and **embedded Mermaid diagrams** for documentation. Everything is plain text and git-committable — no binaries, no generated images.
+
+## Load first
+
+Before starting any task, load these skills — they define conventions this skill builds on:
+
+- `devbox` — tool version pinning, `.envrc` setup, `devbox run` in CI
+- `taskfile` — `action:env` naming (`plan:dev`, not `dev:plan`), standard task set, `prompt:` guards
+
+Also load `github-actions` when the task involves CI/CD setup, and `document` when the task involves README or ARCHITECTURE.md.
 
 ## Operational boundary — read this first
 
@@ -51,8 +62,9 @@ This boundary applies even when the user has connected credentials, even when th
 | Starting a new Terraform project | Scaffold using the templates in `assets/templates/` and `assets/ci/`; produce the full directory structure below |
 | Adding/editing a module | Read `references/module-design.md`; ensure module README is updated |
 | Working with state (import, mv, rm, locking issues) | Read `references/state-management.md` |
-| Writing or fixing a Taskfile or devbox.json | Use `assets/templates/Taskfile.yml` and `assets/templates/devbox.json` as the baseline |
-| Setting up GitHub Actions or pre-commit | Read `references/ci-cd.md` and use files from `assets/ci/` |
+| Writing or fixing a Taskfile | Use `assets/templates/Taskfile.yml` as the baseline; also read the shared `taskfile` skill for conventions |
+| Writing or fixing devbox.json or .envrc | Use `assets/templates/devbox.json` as the baseline; also read the shared `devbox` skill |
+| Setting up GitHub Actions or pre-commit | Read the shared `github-actions` skill + `references/ci-cd.md` and use files from `assets/ci/` |
 | Debugging a plan/apply failure | Read `references/troubleshooting.md` |
 | Reviewing existing Terraform code | Use `references/review-checklist.md` |
 | Running an audit / triaging `task audit` findings | Read `references/audit-triage.md` — Claude reads JSON, triages, proposes fixes |
@@ -154,10 +166,11 @@ resource "aws_instance" "app" {
 devbox shell          # Enter env with pinned tool versions
 task --list           # Discover commands
 task check            # fmt + validate + lint            ← Claude can run this
-task dev:plan         # Plan against dev                 ← Claude can run this
-# task dev:apply      # Apply to dev                     ← USER ONLY
-# task prod:plan      # Plan against prod                ← Claude can run this if creds are scoped read-only; otherwise USER ONLY
-# task prod:apply     # Apply to prod                    ← USER ONLY
+task plan:dev         # Plan against dev                 ← Claude can run this
+task plan             # Plan all environments            ← Claude can run this
+# task plan:prod      # Plan against prod                ← Claude can run this if creds are scoped read-only; otherwise USER ONLY
+# task apply:dev      # Apply to dev                     ← USER ONLY
+# task apply:prod     # Apply to prod                    ← USER ONLY
 ```
 
 Claude's role in this workflow:
@@ -182,15 +195,16 @@ Raw `terraform` commands are acceptable only for the read-only operations listed
 
 For deeper guidance (composition patterns, `for_each` vs `count`, dynamic blocks, lifecycle rules), read `references/module-design.md`.
 
-## Documentation requirements
+## Documentation
 
-Every project has:
+See the `document` skill for conventions (README.md structure, docs/ARCHITECTURE.md with Mermaid-first diagrams, SVG as fallback, what not to generate).
 
-1. **`README.md`** — project description, prerequisites, quick start (`devbox shell && task --list`), structure overview, link to `docs/ARCHITECTURE.md`.
-2. **`docs/ARCHITECTURE.md`** — overview, embedded Mermaid architecture diagram, component descriptions, module dependencies, environment differences table, deployment workflow (also as Mermaid), state management, security architecture.
-3. **`modules/*/README.md`** — purpose, usage example, requirements table, inputs table, outputs table.
+Terraform-specific additions on top of the standard doc set:
 
-**Mermaid is mandatory for diagrams.** Never produce or reference separate `.png` / `.svg` / `.drawio` files for architecture. Mermaid is text, version-controlled, and renders in GitHub/GitLab/most doc sites. A template for `ARCHITECTURE.md` lives in `assets/templates/ARCHITECTURE.md`.
+- **`modules/*/README.md`** — run `task docs` (terraform-docs) if the Taskfile has it; otherwise generate manually with inputs/outputs tables.
+- **`docs/ARCHITECTURE.md`** extra sections: remote-state dependency table (which repos this reads from and what outputs it uses), environment differences table (what changes between dev/staging/prod), state management section (backend, locking strategy).
+
+A template for `ARCHITECTURE.md` lives in `assets/templates/ARCHITECTURE.md`.
 
 ## Hard rules
 
@@ -198,7 +212,7 @@ Every project has:
 - ❌ Never put literal secret values in `.tf`, `.tfvars`, `.hcl`, or any version-controlled file — secrets come from Vault or AWS Secrets Manager (see `references/secrets.md`)
 - ❌ Never use `terraform output` as the canonical way to retrieve a secret value — generated secrets are persisted back to the secrets backend in the same module
 - ❌ Never produce a project without `devbox.json` and `Taskfile.yml`
-- ❌ Never produce architecture documentation as a separate image file — use embedded Mermaid
+- ❌ Never produce architecture documentation as a binary image file (`.png`, `.drawio`) — use embedded Mermaid or SVG
 - ❌ Never use `count` for resources whose identity should be stable across additions/removals — use `for_each` with a map
 - ❌ Never store state locally for any project that will have more than one contributor
 - ❌ Never put unrelated infrastructure in the same repo — one domain per repo (see "Repo organization" above)
@@ -231,3 +245,39 @@ Read these on demand — they are not loaded by default:
 - `assets/ci/github-actions.yml` — GitHub Actions workflow
 
 When scaffolding, copy these verbatim and fill in the project-specific bits (project name, providers, regions). Don't rewrite them from scratch.
+
+## Observability
+
+When provisioning or reviewing infrastructure, apply these principles:
+
+- **Metrics**: Prometheus + Grafana. Four Golden Signals for services (Latency, Traffic, Errors, Saturation); USE method for infrastructure (Utilization, Saturation, Errors).
+- **Logs**: structured JSON to stdout/stderr; centralized aggregation (Loki, ELK, CloudWatch); correlation IDs for cross-service tracing.
+- **Traces**: distributed tracing (Jaeger, Tempo, X-Ray) for multi-service flows.
+- **Alerts**: alert on symptoms (user-impacting conditions), not causes. Every alert needs a runbook. Page only for user-impacting events.
+
+## Disaster recovery
+
+- Automated backups with **tested** restore procedures. Untested backups aren't backups. Document RPO and RTO.
+- Multi-AZ (or multi-region) for production stateful resources — provision this in Terraform, not as an afterthought.
+- Failover procedures written, rehearsed, and linked from runbooks.
+- Add `lifecycle { prevent_destroy = true }` on stateful production resources to guard against accidental `terraform destroy`.
+
+## Cost
+
+- Right-size resources from actual utilization metrics, not initial guesses.
+- Auto-scaling for variable workloads; reserved/committed capacity for predictable baseline.
+- Spot/preemptible instances for fault-tolerant batch workloads.
+- Tag every resource for cost allocation by team, service, and environment — enforce via Terraform variable + `default_tags`.
+- Regular cost reviews — cloud spend drifts silently without them.
+
+## Companion skills — offer after completing
+
+When the main task is done (scaffolding, module work, plan review, audit triage), check the repo and offer whichever of these are missing or incomplete:
+
+| Skill | Offer when |
+|-------|-----------|
+| `devbox` | No `devbox.json` in the repo root |
+| `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` in the repo root |
+| `document` | No `docs/ARCHITECTURE.md`, or module READMEs are missing / out of date |
+
+Ask as a single grouped question — not mid-task, not separately for each.

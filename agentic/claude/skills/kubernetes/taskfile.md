@@ -1,68 +1,56 @@
-# Taskfile (services repo)
+# Taskfile — Helm chart tasks
 
-This file documents the canonical `Taskfile.yaml` used by services repos for linting, templating, and auditing Helm charts. Read this when:
+See the shared `taskfile` skill for base conventions (standard task names, `action:env` naming, variables pattern, CI integration, core principle). This file covers the Helm-specific tasks for chart templating, linting, and auditing.
 
-- The user is creating a new services repo and needs a starting Taskfile
-- The user is modifying or debugging an existing Taskfile
-- Claude needs to invoke `task template` / `task lint` / `task audit` and wants to know what files actually get loaded
-
-## What it does
-
-The Taskfile wraps `helm template`, `helm lint`, and `kubescape scan` for every chart under `deploy/charts/`. It handles values-file precedence and writes rendered output to `.argo/` for ArgoCD to consume.
-
-## Core variables (KEY=VALUE form)
-
-go-task uses `KEY=VALUE` arguments. Order doesn't matter; omit any variable to skip its layer.
+## Core variables
 
 | Variable | Effect |
 |---|---|
-| `ENV=dev` / `ENV=prod` | Adds `<chart>/<env>/values.yaml` to the helm command. Without it, only `values.yaml` + `defaults/values.yaml` are loaded. |
 | `CHART_NAME=foo` | Process only `deploy/charts/foo`, not all charts. |
 
-Examples:
+## Task naming
+
+Helm tasks follow the `action:env` convention from the shared taskfile skill:
 
 ```bash
-task template                                       # all charts, no env
-task template ENV=dev                               # all charts, dev values
-task template ENV=prod CHART_NAME=my-service        # one chart, prod values
-task lint ENV=dev                                   # lint without rendering or auditing
-task audit ENV=dev                                  # render + kubescape scan on .argo/
-task clean                                          # wipe .argo/
+task template         # iterate all environments: dev → prod
+task template:dev     # dev only
+task template:prod    # prod only
+task lint             # lint for all environments
+task lint:dev         # dev only
+task audit            # audit for all environments
+task audit:dev        # dev only
 ```
 
-## Chart discovery
+## Output directories
 
-Charts are discovered by globbing `deploy/charts/*` directly — any directory there with a `Chart.yaml` is a chart. **The Taskfile does not depend on `.github/workflows/services.yaml` or any other CI config.** This is a deliberate decoupling; CI may discover charts independently from a workflow file, but the Taskfile is self-sufficient.
+Rendered output is split by environment to support committing both:
 
-If a directory under `deploy/charts/` lacks a `Chart.yaml`, the task warns and skips it.
+```
+.argo/
+├── dev/
+│   └── <chart>/      # output of task template:dev
+└── prod/
+    └── <chart>/      # output of task template:prod
+```
 
-## Values file precedence
-
-For each chart, the task assembles `-f` flags in this exact order (later overrides earlier):
-
-1. `<chart>/values.yaml` — always, if present
-2. `<chart>/defaults/values.yaml` — always, if present
-3. `<chart>/<ENV>/values.yaml` — only if `ENV` is set and the file exists
-
-Files that don't exist are skipped silently — there's no error for a missing env directory on a chart that doesn't differentiate by env.
+ArgoCD reads from these paths; committing the rendered output is intentional. The CI diff check compares each env separately.
 
 ## Tasks
 
-### `task template`
-Renders all charts (or `CHART_NAME=foo`) into `.argo/<chart>/` for the given `ENV`. Runs `task clean` first so the output dir is fresh. Lints each chart as a side effect — lint failures warn but don't abort, so all charts are processed before exiting.
+### `task template` / `task template:<env>`
+Renders all charts (or `CHART_NAME=foo`) into `.argo/<env>/<chart>/`. Runs `task clean` first so output is always fresh. Values file precedence: `values.yaml` → `defaults/values.yaml` → `<env>/values.yaml` → `<env>/<overlay>.yaml` (when set).
 
-### `task lint`
-Runs `helm lint` on every chart with the same values-file ordering as template, but doesn't render or write to `.argo/`. Useful as a fast pre-commit check or in CI when you only need to validate chart syntax.
+### `task lint` / `task lint:<env>`
+Runs `helm lint` on every chart with the same values-file ordering as template. Fast pre-commit check; does not write to `.argo/`. Continues past failures so all charts are checked before exiting.
 
-### `task audit`
-**Depends on `task template`** — re-uses the rendered output in `.argo/` instead of duplicating the render logic. After templating, runs `kubescape scan` on the rendered tree and exits non-zero if findings exceed the configured severity (see `kubescape` section below). This is the task Claude runs at the end of any chart-modifying work — see SKILL.md "End-of-task audit" for how findings should be handled.
+### `task audit` / `task audit:<env>`
+Depends on `task template:<env>`. After templating, runs `kubescape scan` on `.argo/<env>/` and exits non-zero on findings at or above the configured severity. Run this before declaring any chart-modifying task done.
 
 ### `task clean`
-Removes `.argo/` and recreates it empty. Called automatically by `template` and `audit`; explicit invocation is for resetting state when something's wedged.
+Removes and recreates `.argo/`. Called automatically by `template` and `audit`.
 
 ## Canonical Taskfile.yaml
-
-This is the version Claude should produce when scaffolding a new services repo.
 
 ```yaml
 version: "3"
@@ -70,54 +58,115 @@ version: "3"
 vars:
   CHARTS_DIR: deploy/charts
   OUTPUT_DIR: .argo
-  KUBESCAPE_FRAMEWORK: nsa            # or 'mitre', 'allcontrols' — pick what the team has agreed on
-  KUBESCAPE_FAIL_THRESHOLD: high      # severity at which audit exits non-zero
+  KUBESCAPE_FRAMEWORK: nsa
+  KUBESCAPE_FAIL_THRESHOLD: high
 
 tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  # ── Template — bare task iterates all environments ───────────────────────
+
   template:
-    desc: Lint and template all Helm charts in deploy/charts
+    desc: Template all charts for all environments (dev → prod)
+    cmds:
+      - task: template:dev
+      - task: template:prod
+
+  template:dev:
+    desc: Template all charts for dev
     vars:
-      ENV: '{{.ENV | default ""}}'
+      CHART_NAME: '{{.CHART_NAME | default ""}}'
+    cmds:
+      - task: _template
+        vars: { ENV: dev, CHART_NAME: "{{.CHART_NAME}}" }
+
+  template:prod:
+    desc: Template all charts for prod
+    vars:
+      CHART_NAME: '{{.CHART_NAME | default ""}}'
+    cmds:
+      - task: _template
+        vars: { ENV: prod, CHART_NAME: "{{.CHART_NAME}}" }
+
+  _template:
+    internal: true
+    vars:
+      ENV: '{{.ENV}}'
       CHART_NAME: '{{.CHART_NAME | default ""}}'
     cmds:
       - task: clean
-      - task: process-charts
+        vars: { ENV: "{{.ENV}}" }
+      - task: _process-charts
         vars:
           ENV: "{{.ENV}}"
           CHART_NAME: "{{.CHART_NAME}}"
           MODE: template
 
+  # ── Lint — bare task iterates all environments ───────────────────────────
+
   lint:
-    desc: Lint all Helm charts in deploy/charts (no rendering)
+    desc: Lint all charts for all environments (dev → prod)
+    cmds:
+      - task: lint:dev
+      - task: lint:prod
+
+  lint:dev:
+    desc: Lint all charts for dev
     vars:
-      ENV: '{{.ENV | default ""}}'
       CHART_NAME: '{{.CHART_NAME | default ""}}'
     cmds:
-      - task: process-charts
-        vars:
-          ENV: "{{.ENV}}"
-          CHART_NAME: "{{.CHART_NAME}}"
-          MODE: lint
+      - task: _process-charts
+        vars: { ENV: dev, CHART_NAME: "{{.CHART_NAME}}", MODE: lint }
+
+  lint:prod:
+    desc: Lint all charts for prod
+    vars:
+      CHART_NAME: '{{.CHART_NAME | default ""}}'
+    cmds:
+      - task: _process-charts
+        vars: { ENV: prod, CHART_NAME: "{{.CHART_NAME}}", MODE: lint }
+
+  # ── Audit — bare task iterates all environments ──────────────────────────
 
   audit:
-    desc: Render charts and run kubescape against the output
-    deps: [template]
+    desc: Template and audit all environments (dev → prod)
+    cmds:
+      - task: audit:dev
+      - task: audit:prod
+
+  audit:dev:
+    desc: Template and audit all charts for dev
+    cmds:
+      - task: template:dev
+      - task: _audit
+        vars: { ENV: dev }
+
+  audit:prod:
+    desc: Template and audit all charts for prod
+    cmds:
+      - task: template:prod
+      - task: _audit
+        vars: { ENV: prod }
+
+  _audit:
+    internal: true
     vars:
-      ENV: '{{.ENV | default ""}}'
-      CHART_NAME: '{{.CHART_NAME | default ""}}'
+      ENV: '{{.ENV}}'
     cmds:
       - |
         set -e
-        echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "🛡️  Auditing rendered output: {{.OUTPUT_DIR}}/"
+        echo "Auditing rendered output: {{.OUTPUT_DIR}}/{{.ENV}}/"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         kubescape scan framework {{.KUBESCAPE_FRAMEWORK}} \
-          {{.OUTPUT_DIR}} \
+          {{.OUTPUT_DIR}}/{{.ENV}} \
           --severity-threshold {{.KUBESCAPE_FAIL_THRESHOLD}} \
           $([ -f .kubescape/exceptions.json ] && echo "--exceptions .kubescape/exceptions.json")
 
-  process-charts:
+  _process-charts:
     internal: true
     vars:
       ENV: '{{.ENV | default ""}}'
@@ -126,43 +175,31 @@ tasks:
     cmds:
       - |
         set -e
-
-        # Discover charts: either the one named via CHART_NAME, or every dir under CHARTS_DIR
         if [ -n "{{.CHART_NAME}}" ]; then
           CHARTS="{{.CHART_NAME}}"
         else
-          CHARTS=$(find {{.CHARTS_DIR}} -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          CHARTS=$(find {{.CHARTS_DIR}} -mindepth 1 -maxdepth 1 -type d | xargs -I{} basename {} | sort)
         fi
 
         for chart in $CHARTS; do
           CHART_PATH="{{.CHARTS_DIR}}/$chart"
-
-          if [ ! -d "$CHART_PATH" ]; then
-            echo "⚠️  Chart directory $CHART_PATH does not exist, skipping..."
-            continue
-          fi
-          if [ ! -f "$CHART_PATH/Chart.yaml" ]; then
-            echo "⚠️  Chart.yaml not found in $CHART_PATH, skipping..."
-            continue
-          fi
+          [ ! -d "$CHART_PATH" ] && echo "⚠️  $CHART_PATH not found, skipping" && continue
+          [ ! -f "$CHART_PATH/Chart.yaml" ] && echo "⚠️  No Chart.yaml in $CHART_PATH, skipping" && continue
 
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📊 Processing: $chart"
+          echo "Processing: $chart (ENV={{.ENV}})"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-          # Build values args in precedence order
           VALUES_ARGS=""
           for f in \
             "$CHART_PATH/values.yaml" \
             "$CHART_PATH/defaults/values.yaml" \
             "${ENV:+$CHART_PATH/{{.ENV}}/values.yaml}" \
           ; do
-            [ -n "$f" ] && [ -f "$f" ] && VALUES_ARGS="$VALUES_ARGS -f $f" && echo "  📄 Using: ${f#$CHART_PATH/}"
+            [ -n "$f" ] && [ -f "$f" ] && VALUES_ARGS="$VALUES_ARGS -f $f"
           done
 
-          echo ""
-          echo "🔍 Linting..."
           if helm lint $CHART_PATH $VALUES_ARGS; then
             echo "  ✅ Lint passed"
           else
@@ -170,107 +207,69 @@ tasks:
           fi
 
           if [ "{{.MODE}}" = "template" ]; then
-            OUTPUT_PATH="{{.OUTPUT_DIR}}/$chart"
+            OUTPUT_PATH="{{.OUTPUT_DIR}}/{{.ENV}}/$chart"
             mkdir -p "$OUTPUT_PATH"
-            echo ""
-            echo "📦 Templating..."
-            if helm template $chart $CHART_PATH $VALUES_ARGS --output-dir "$OUTPUT_PATH"; then
-              echo "  ✅ Output: $OUTPUT_PATH"
-            else
-              echo "  ❌ Template failed"
-              exit 1
-            fi
+            helm template $chart $CHART_PATH $VALUES_ARGS --output-dir "$OUTPUT_PATH"
           fi
         done
 
   clean:
-    desc: Clean the .argo output directory
+    desc: Clean the .argo output directory (all envs, or pass ENV= for one)
+    vars:
+      ENV: '{{.ENV | default ""}}'
     cmds:
-      - rm -rf {{.OUTPUT_DIR}}
-      - mkdir -p {{.OUTPUT_DIR}}
+      - |
+        if [ -n "{{.ENV}}" ]; then
+          rm -rf {{.OUTPUT_DIR}}/{{.ENV}}
+          mkdir -p {{.OUTPUT_DIR}}/{{.ENV}}
+        else
+          rm -rf {{.OUTPUT_DIR}}
+          mkdir -p {{.OUTPUT_DIR}}
+        fi
 
   list:
     desc: List all charts under deploy/charts
     cmds:
       - |
         echo "Charts under {{.CHARTS_DIR}}/:"
-        find {{.CHARTS_DIR}} -mindepth 1 -maxdepth 1 -type d -printf '  - %f\n' | sort
+        find {{.CHARTS_DIR}} -mindepth 1 -maxdepth 1 -type d | xargs -I{} basename {} | sort | sed 's/^/  - /'
 ```
 
-## kubescape configuration
+## Kubescape configuration
 
-`task audit` runs `kubescape scan framework <framework> .argo/` with a configurable severity threshold and an optional exceptions file:
+- **Framework** (`KUBESCAPE_FRAMEWORK`): `nsa` is the sensible default; `mitre` is heavier; `allcontrols` is exhaustive and noisy. Pick one and stick with it across the team.
+- **Threshold** (`KUBESCAPE_FAIL_THRESHOLD`): `high` fails on high+critical only. `medium` is stricter; `critical` is too lenient.
+- **Exceptions** (`.kubescape/exceptions.json`): every entry must include a `reason` field — exceptions without rationale are how this file rots.
 
-- **Framework** (`KUBESCAPE_FRAMEWORK`): which control set to scan against. `nsa` is a sensible default for general workloads; `mitre` is heavier and security-focused; `allcontrols` is exhaustive and noisy. Pick one and stick with it across the team.
-- **Severity threshold** (`KUBESCAPE_FAIL_THRESHOLD`): minimum severity that causes a non-zero exit. `high` fails on high+critical only; `medium` is stricter; `critical` is too lenient for most teams.
-- **Exceptions** (`.kubescape/exceptions.json`): a JSON file listing controls or resources to skip with a `reason` per entry. See the kubescape docs for the exact schema. Only used if the file exists.
+`.kubescape/exceptions.json` structure:
 
-When Claude proposes adding an exception, the entry must include a `reason` field — exceptions without rationale are how this file becomes a graveyard.
+```json
+[
+  {
+    "name": "allow-host-network-cni",
+    "policyType": "postureException",
+    "actions": ["alertOnly"],
+    "resources": {
+      "designatorType": "Attributes",
+      "attributes": {
+        "kind": "DaemonSet",
+        "name": "my-cni-plugin",
+        "namespace": "kube-system"
+      }
+    },
+    "posturePolicies": [
+      {
+        "controlName": "Allow hostNetwork",
+        "controlID": "C-0041"
+      }
+    ],
+    "reason": "CNI plugin requires hostNetwork to manage node network interfaces directly. There is no alternative — this is a platform-level workload, not an application."
+  }
+]
+```
 
-## Behavior notes
-
-- **`task template` with no `ENV`** loads only `values.yaml` + `defaults/values.yaml`. Useful as a quick smoke test that the chart renders without env-specific values; not a real deploy artifact.
-- **`task template` always cleans `.argo/` first.** For incremental rendering, run `task lint`; the rendered-output workflow is intentionally all-or-nothing.
-- **`task lint` continues past lint failures.** By design: it processes every chart so all errors surface at once.
-- **`task template` exits non-zero on the first templating failure** so CI fails loudly.
-- **`task audit` requires `kubescape` on PATH.** The team's `devbox.json` should pin it; see `devbox.md`.
+Keys: `name` (human identifier), `resources` (scope the exception tightly by kind/name/namespace), `posturePolicies` (the specific control), `reason` (mandatory — why this is acceptable). The `reason` field is what makes future reviewers able to evaluate whether the exception still applies.
 
 ## Optional extensions
 
-When a repo legitimately needs more than the two-axis model (env + chart), extend the Taskfile rather than fighting it. Common cases:
-
-### Adding a third-axis overlay
-
-If charts in the repo deploy multiple variations within an environment (e.g., per-region, per-tenant, per-customer), add a third variable. The team picks the name that fits the domain — `REGION`, `TENANT`, etc. The pattern:
-
-```yaml
-# In task vars
-REGION: '{{.REGION | default ""}}'
-
-# In the values loop, append after the env file
-"${REGION:+${ENV:+$CHART_PATH/{{.ENV}}/{{.REGION}}.yaml}}" \
-```
-
-The overlay file lives at `<chart>/<env>/<region>.yaml` and is appended after `<env>/values.yaml`. It only loads when both `ENV` and `REGION` are set and the file exists, so charts that don't use the overlay are unaffected.
-
-If a chart in the repo uses this and most don't, that's fine — the per-chart files just don't exist for the others.
-
-### Adding `--kube-version` / `--api-versions`
-
-For matching cluster server-side schema (e.g., when CRDs vary by cluster version), thread these through as task vars and add to the `helm template` invocation. Useful when the team runs different Kubernetes versions in dev vs prod.
-
-### Adding a `validate` task
-
-For schema validation beyond what `helm lint` does, pipe `helm template` output through `kubeconform`:
-
-```yaml
-validate:
-  desc: Validate rendered manifests against the K8s schema
-  deps: [template]
-  cmds:
-    - kubeconform -strict -summary {{.OUTPUT_DIR}}
-```
-
-### Adding a `diff` gate
-
-To enforce that rendered `.argo/` output is committed:
-
-```yaml
-diff:
-  desc: Fail if .argo/ differs from the committed version
-  deps: [template]
-  cmds:
-    - |
-      if ! git diff --quiet {{.OUTPUT_DIR}}/; then
-        echo "::error::Rendered output is out of date. Run 'task template ENV=<env>' and commit."
-        git diff --stat {{.OUTPUT_DIR}}/
-        exit 1
-      fi
-```
-
-Useful as a PR check.
-
-### What not to add
-
-- **Don't add `CHART_NAME`-specific tasks** (`template-my-service:`). The `CHART_NAME=foo` variable already covers single-chart targeting and avoids per-chart maintenance.
-- **Don't bake `kubectl apply` into a task.** Deployment is ArgoCD's job; the Taskfile's job ends at `.argo/`.
+See the shared taskfile skill for patterns to add a third-axis overlay (`CHAIN`, `REGION`, `TENANT`), `--kube-version` flags, a `validate` task with `kubeconform`, and a `.argo/` diff gate for PRs.

@@ -241,34 +241,9 @@ spec:
 
 Single source of truth: change the ApplicationSet, and every generated Application updates.
 
-## Templating locally with go-task
+## Templating locally
 
-The team uses **go-task** (binary: `task`, config: `Taskfile.yaml`) for templating and linting charts. Common invocations:
-
-```bash
-# Template all charts with base + defaults values only (no env)
-task template
-
-# Template all charts for a specific environment
-task template ENV=dev
-task template ENV=prod
-
-# Template one chart only
-task template CHART_NAME=my-service ENV=dev
-
-# Lint without templating
-task lint ENV=dev
-
-# Render + run kubescape (end-of-task audit)
-task audit ENV=dev
-
-# Clean the rendered output dir
-task clean
-```
-
-Variables are set with `KEY=VALUE` (go-task convention), order-independent. The full Taskfile and its internals are documented in `taskfile.md`.
-
-These wrap a `helm template` call equivalent to:
+Use `task template ENV=dev` (or `ENV=prod`) — see the `taskfile` skill and `taskfile.md` for the full Taskfile reference. This is equivalent to:
 
 ```bash
 helm template <release> deploy/charts/<chart> \
@@ -279,9 +254,7 @@ helm template <release> deploy/charts/<chart> \
   --output-dir .argo/<chart>
 ```
 
-The `.argo/` output directory is what ArgoCD reads — committing the rendered output is intentional, not a mistake.
-
-Other node types follow the same `node.kubernetes.io/type` label. Stateless workloads typically don't need a selector and run on the general pool.
+The `.argo/` output directory is what ArgoCD reads — committing the rendered output is intentional.
 
 ## Priority classes
 
