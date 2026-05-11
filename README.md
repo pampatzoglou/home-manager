@@ -75,6 +75,7 @@ graph LR
 
 > 📖 **Detailed Architecture**: See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for comprehensive diagrams and technical details
 > 🛠️ **Tools Reference**: See [TOOLS.md](./docs/TOOLS.md) for complete tool documentation and usage examples
+> 🔑 **Developer Identity**: See [DEVELOPER_IDENTITY.md](./docs/DEVELOPER_IDENTITY.md) for Git identity, SSH, and FIDO key setup
 > 🤖 **AI Assistant Setup**: See [agentic/README.md](./agentic/README.md) for Claude configuration and skills
 
 ## 🚀 Quick Start
