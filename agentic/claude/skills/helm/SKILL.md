@@ -1,12 +1,12 @@
 ---
 name: helm
-description: Helm chart authoring — chart anatomy, values file layering (values.yaml → defaults/ → env/ → overlay), _helpers.tpl, template patterns (conditionals, extraObjects, secrets as file mounts), and local validation.
+description: Helm chart authoring — chart anatomy, values file layering (values.yaml → defaults/ → env/ → overlay), _helpers.tpl, template foundations, and local validation.
 user-invocable: true
 ---
 
-# Helm
+# Helm — Foundations
 
-Helm packages Kubernetes workloads as charts. This skill covers authoring charts and working with values files correctly. For what must be *in* the Kubernetes resources (security context, probes, resource limits), see the `kubernetes` skill's resource standards.
+Helm packages Kubernetes workloads as charts. This file covers chart structure, values organization, helpers, and validation. For template patterns, workload variants, observability, and operational requirements see `patterns.md`. For Kubernetes resource-level standards (security context, probes, resource limits) see the `kubernetes` skill's `resource-standards.md`.
 
 ## Do you need a new chart?
 
@@ -29,41 +29,54 @@ When Helm is the wrong tool entirely:
 ```
 my-chart/
 ├── Chart.yaml
-├── values.yaml              # scaffold defaults + commented placeholders for every knob
-├── values.schema.json       # recommended — catches values typos and wrong types at lint time
+├── values.yaml              # scaffold defaults — chart works on kind out of the box
+├── values.schema.json       # recommended — catches typos and wrong types at lint time
 ├── defaults/
-│   └── values.yaml          # DRY layer — true for every cluster deployment
+│   └── values.yaml          # DRY operational baseline — true for every cluster deployment
 ├── dev/
-│   └── values.yaml          # dev-specific deltas only
+│   ├── values.yaml          # dev env deltas (or single-variant charts)
+│   ├── btc.yaml             # variant overlays — one per variant/chain/tenant
+│   ├── eth.yaml
+│   └── op.yaml
 ├── prod/
-│   └── values.yaml          # prod-specific deltas only
+│   ├── values.yaml
+│   ├── btc.yaml
+│   └── eth.yaml
 ├── templates/
 │   ├── _helpers.tpl
-│   ├── deployment.yaml
+│   ├── deployment.yaml      # or cronjob.yaml, statefulset.yaml
 │   ├── service.yaml
 │   ├── serviceaccount.yaml
+│   ├── secrets.yaml
+│   ├── hpa.yaml
 │   ├── pdb.yaml
-│   ├── networkpolicy.yaml
+│   ├── extra-manifests.yaml
 │   └── NOTES.txt
 └── README.md
 ```
+
+### Variant overlay axis
+
+When the same chart is deployed multiple times per environment (per blockchain, per tenant, per region), each variant gets its own overlay file under `<env>/<variant>.yaml`. The ArgoCD ApplicationSet matrix generator produces the cross-product: `charts × envs × variants`.
+
+To disable a variant in a specific environment, set `replicaCount: 0` in its overlay file — never in the base `values.yaml`. The base chart must always be deployable standalone on a local kind cluster with `replicaCount: 1`.
 
 ## Values file layering
 
 Precedence — later overrides earlier:
 
 ```
-values.yaml → defaults/values.yaml → <env>/values.yaml → <env>/<overlay>.yaml
+values.yaml → defaults/values.yaml → <env>/values.yaml → <env>/<variant>.yaml
 ```
 
 | Layer | Purpose |
 |---|---|
-| `values.yaml` | Helm scaffold defaults + commented-out example shapes for every feature section |
-| `defaults/values.yaml` | DRY layer: anything true for every cluster deployment — pull secrets, security context overrides, common labels, monitoring opt-ins |
-| `<env>/values.yaml` | Environment-specific deltas only: replica counts, hostnames, resource sizes, ExternalSecret names |
-| `<env>/<overlay>.yaml` | Optional third-axis overlay (region, tenant, chain variant) |
+| `values.yaml` | Scaffold defaults with commented-out recommended shapes. Chart works on kind with just this file. |
+| `defaults/values.yaml` | Operational baseline: pull secrets, security context, pod labels, reloader annotation, common volumes. Anything true for every cluster deployment. |
+| `<env>/values.yaml` | Environment-specific deltas: hostnames, resource sizes, ExternalSecret names, monitoring opt-ins. |
+| `<env>/<variant>.yaml` | Variant-specific overrides: replica count, chain/tenant config, topic names, RPC endpoints. Set `replicaCount: 0` here to disable. |
 
-**Mental test before adding a value:** true in two or more environments? → `defaults/`. Environment-specific? → `<env>/values.yaml`. Copy-pasting the same value into both dev and prod is a signal to promote it to `defaults/`.
+**Mental test before adding a value:** true in two or more environments? → `defaults/`. Environment-specific? → `<env>/values.yaml`. Variant-specific? → `<env>/<variant>.yaml`. Copy-pasting the same value into both dev and prod is a signal to promote it to `defaults/`.
 
 ## Chart.yaml
 
@@ -73,72 +86,159 @@ name: my-chart
 description: One-line description of what this deploys.
 type: application
 version: 0.1.0          # bump on every change — ArgoCD uses this for change detection
-appVersion: "1.4.2"     # tracks the upstream image version
+appVersion: "1.0.0"     # tracks the actual application version — not the scaffold default
 kubeVersion: ">=1.28.0"
 maintainers:
   - name: team-name
-dependencies:
-  - name: common          # optional — shared helpers chart
-    version: "2.x.x"
-    repository: "https://charts.bitnami.com/bitnami"
-    condition: common.enabled
 ```
 
 Bump `version` on every change, even non-breaking ones. Both ArgoCD and Helm use it to detect that something changed.
 
-**Chart dependencies** (`dependencies:` in `Chart.yaml`) pull in sub-charts at `helm dependency update` time, stored in `charts/`. Use them for:
-- Shared `_helpers.tpl` logic packaged as a library chart (`type: library`)
-- Bundling a sidecar chart (e.g., an exporter) that ships with every deployment of this workload
+Set `appVersion` to the real application version. Don't leave the `helm create` default (`"1.16.0"`) — it's meaningless and misleading.
 
-Commit the `charts/` directory or add `charts/*.tgz` to `.gitignore` and run `helm dependency update` in CI. Do **not** use chart dependencies as a replacement for ArgoCD `ApplicationSet` — each independently deployed component gets its own chart.
+Ensure `name` matches the chart directory name. A mismatch breaks ArgoCD and confuses everyone.
 
-## values.yaml style
+**Chart dependencies** (`dependencies:` in `Chart.yaml`) pull in sub-charts at `helm dependency update` time. Use them for shared `_helpers.tpl` logic packaged as a library chart (`type: library`) or bundling a sidecar chart. Do **not** use chart dependencies as a replacement for ArgoCD `ApplicationSet` — each independently deployed component gets its own chart.
 
-Every knob has a default and an inline comment:
+## values.yaml — structure and style
+
+### Grouping by resource boundary
+
+Group values by the Kubernetes resource or external dependency they configure. Each block should be self-contained: connection config + credentials + ExternalSecret toggle together. An ops person reading the values should see exactly which Secret they're configuring without cross-referencing other sections.
 
 ```yaml
-# Replicas. Set >= 2 for HA — PDB and anti-affinity activate at >= 2.
+# -- Replica count. Base chart defaults to 1 for local kind development.
+# -- Set >= 2 for HA — PDB and topology spread activate automatically.
 replicaCount: 1
 
 image:
-  repository: ghcr.io/example/myapp
-  tag: "1.4.2"           # pin to tag or digest; never 'latest'
+  repository: ""
+  tag: ""                # pin to tag or digest; never 'latest'
+  digest: ""             # optional — sha256 digest for immutable deploys
   pullPolicy: IfNotPresent
 
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: "1"
-    memory: 512Mi
+# -- Database connection and credentials.
+# -- Maps to the `-db` Secret and DB_* env vars.
+database:
+  host: ""
+  port: "5432"
+  database: ""
+  user: "postgres"
+  password: "localdev"
+  externalSecret:
+    enable: false
+    name: ""
+    userKey: username
+    passwordKey: password
 
-nodeSelector: {}
-tolerations: []
-
-# Feature sections are off by default:
-ingress:
-  enabled: false
-  className: nginx
-  hosts: []
+# -- Kafka connection and SASL credentials.
+# -- Maps to the `-kafka` Secret and KAFKA_* env vars.
+kafka:
+  brokers: ""
+  securityProtocol: "SASL_PLAINTEXT"
+  sasl:
+    mechanism: SCRAM-SHA-512
+    username: ""
+    password: ""
+    externalSecret:
+      enable: false
+      name: ""
+      passwordKey: password
 ```
 
-Group related knobs (`image.*`, `service.*`, `ingress.*`). Use `enabled: false` at the top of feature sections and guard the whole resource with `{{- if .Values.ingress.enabled }}`.
+Each top-level resource block maps 1:1 to:
+- A conditional Secret in `secrets.yaml` (rendered when `externalSecret.enable: false`)
+- The `secretKeyRef` env vars in the Deployment that consume it
+- An ExternalSecret reference in the env overlay (when `externalSecret.enable: true`)
 
-New template features get commented-out example shapes in `values.yaml` so it doubles as documentation of every knob the chart exposes:
+### Commented-out recommended values
+
+Features are off by default but include the recommended production shape as comments. This serves as both documentation and a copy-paste starting point for env overlays:
 
 ```yaml
-# prometheusRules:
+resources: {}
+# resources:
+#   requests:
+#     cpu: 100m
+#     memory: 128Mi
+#   limits:
+#     cpu: "1"
+#     memory: 512Mi
+
+autoscaling:
+  enabled: false
+# autoscaling:
 #   enabled: true
-#   rules:
-#     - alert: HighErrorRate
-#       expr: rate(http_errors_total[5m]) > 0.05
-#       for: 10m
+#   minReplicas: 2
+#   maxReplicas: 10
+#   targetCPUUtilizationPercentage: 80
+#   behavior:
+#     scaleDown:
+#       stabilizationWindowSeconds: 300
+
+pdb:
+  enabled: false
+# pdb:
+#   enabled: true
+#   maxUnavailable: 1
+
+metrics:
+  enabled: false
+# metrics:
+#   podMonitor:
+#     enabled: true
+#     interval: 30s
+#     additionalLabels:
+#       release: prometheus
+#   prometheusRule:
+#     enabled: true
+#     rules:
+#       - alert: HighErrorRate
+#         expr: rate(http_errors_total[5m]) > 0.05
+#         for: 10m
 ```
+
+### Feature toggle pattern
+
+Use `enabled: false` at the top of feature sections and guard the entire Kubernetes resource with `{{- if .Values.<feature>.enabled }}`. Don't guard individual lines inside a resource.
+
+### Standard infrastructure keys
+
+Every chart should define these (even if empty) so overlays can set them without knowing whether the chart "supports" them:
+
+```yaml
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+volumes: []
+volumeMounts: []
+extraObjects: []
+```
+
+### ServiceAccount
+
+```yaml
+serviceAccount:
+  create: true
+  automount: false       # default false — only true when the workload calls the API server
+  annotations: {}
+  name: ""
+```
+
+Default `automount: false`. Workloads that don't talk to the Kubernetes API shouldn't have a token mounted.
 
 ## values.schema.json
 
-Add a JSON Schema file to catch typos and wrong value types at `helm lint` and `helm template` time — before manifests ever reach the cluster:
+Recommended for charts with complex or user-facing values. Catches typos and wrong types at `helm lint` / `helm template` time — before manifests reach the cluster. Not every chart needs one on day one, but add one when values grow beyond a handful of keys or when multiple teams consume the chart:
 
 ```json
 {
@@ -148,11 +248,11 @@ Add a JSON Schema file to catch typos and wrong value types at `helm lint` and `
   "properties": {
     "replicaCount": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 0
     },
     "image": {
       "type": "object",
-      "required": ["repository", "tag"],
+      "required": ["repository"],
       "properties": {
         "repository": { "type": "string" },
         "tag":        { "type": "string" },
@@ -161,19 +261,16 @@ Add a JSON Schema file to catch typos and wrong value types at `helm lint` and `
           "enum": ["Always", "IfNotPresent", "Never"]
         }
       }
-    },
-    "resources": {
-      "type": "object"
     }
   }
 }
 ```
 
-Schema at the top level of the chart (`my-chart/values.schema.json`). Helm validates values against it on every `helm lint`, `helm template`, and `helm install`. This catches `replicaCount: "two"` and missing required keys before they cause confusing runtime failures.
-
-Add a schema entry for every key you care about. You don't need to be exhaustive — cover required keys and any key whose type is easy to get wrong.
+Cover required keys and any key whose type is easy to get wrong. You don't need to be exhaustive.
 
 ## _helpers.tpl
+
+Every chart defines at minimum these five helpers:
 
 ```gotmpl
 {{- define "my-chart.name" -}}
@@ -184,15 +281,25 @@ Add a schema entry for every key you care about. You don't need to be exhaustive
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name (include "my-chart.name" .) | trunc 63 | trimSuffix "-" }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
 {{- end }}
 {{- end }}
 
+{{- define "my-chart.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "my-chart.labels" -}}
-helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
-app.kubernetes.io/name: {{ include "my-chart.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+helm.sh/chart: {{ include "my-chart.chart" . }}
+{{ include "my-chart.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
@@ -202,35 +309,22 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 ```
 
-**Selector labels must not include version.** Selectors on Deployments and StatefulSets are immutable — baking the version in means you can't upgrade the chart without deleting and recreating the workload.
+**Selector labels must not include version.** Selectors on Deployments and StatefulSets are immutable — baking the version in means you can't upgrade without deleting and recreating the workload.
 
-## Template patterns
+Add a `serviceAccountName` helper when the chart creates a ServiceAccount:
 
-**Conditional resource** — guard the whole resource, not lines inside it:
 ```gotmpl
-{{- if .Values.ingress.enabled }}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-...
+{{- define "my-chart.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "my-chart.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
 {{- end }}
 ```
 
-**Required values:**
-```gotmpl
-{{ required "image.repository is required" .Values.image.repository }}
-```
+Add a `render` helper for `extraObjects` support (see patterns.md):
 
-**Pass-through structs** — use `toYaml` for blocks the user might fully override:
-```gotmpl
-resources:
-  {{- toYaml .Values.resources | nindent 12 }}
-```
-
-Never `printf` YAML structure together — it always breaks eventually on edge cases.
-
-**`extraObjects` — arbitrary manifest escape hatch:**
-
-In `_helpers.tpl`:
 ```gotmpl
 {{- define "my-chart.render" -}}
   {{- if typeIs "string" .value -}}
@@ -241,63 +335,36 @@ In `_helpers.tpl`:
 {{- end -}}
 ```
 
-In `templates/extra.yaml`:
+## Template foundations
+
+**Conditional resource** — guard the whole resource, not individual lines:
 ```gotmpl
-{{- range .Values.extraObjects }}
----
-{{ include "my-chart.render" (dict "value" . "context" $) }}
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+...
 {{- end }}
 ```
 
-Add `extraObjects: []` in `values.yaml`. The `tpl` call lets users embed Helm expressions (e.g., `{{ include "my-chart.fullname" . }}`) inside their extra objects. Add to any chart reused across teams — it's the clean alternative to forking.
-
-## Secrets: file mounts over env vars
-
-File mounts are strongly preferred:
-- Env vars leak into process listings, log lines, and crash dumps; file mounts don't.
-- File mounts hot-reload with the `reloader` annotation; env vars require a pod restart.
-- File-mounted secrets work cleanly with `external-secrets` rotating credentials in place.
-
-Pattern in `defaults/values.yaml`:
-```yaml
-config:
-  database:
-    externalSecret:
-      enable: false    # true in cluster envs where ExternalSecret is provisioned
-      name: ""         # name of the ExternalSecret-managed Secret
-```
-
-In the Deployment template:
-```yaml
-volumes:
-  - name: db-credentials
-    secret:
-      secretName: {{ if .Values.config.database.externalSecret.enable -}}
-                    {{ .Values.config.database.externalSecret.name }}
-                  {{- else -}}
-                    {{ include "my-chart.fullname" . }}-db
-                  {{- end }}
-volumeMounts:
-  - name: db-credentials
-    mountPath: /etc/secrets/db
-    readOnly: true
-```
-
-When `externalSecret.enable: false`, render a dev-only Secret from placeholder values:
+**Required values:**
 ```gotmpl
-{{- if not .Values.config.database.externalSecret.enable }}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ include "my-chart.fullname" . }}-db
-type: Opaque
-stringData:
-  user: {{ .Values.config.database.user | default "dev" }}
-  password: {{ .Values.config.database.password | default "dev-only-not-for-prod" }}
-{{- end }}
+{{ required "image.repository is required" .Values.image.repository }}
 ```
 
-This keeps prod off the chart-internal Secret path while letting `task template` and `skaffold dev` work locally without ExternalSecret infrastructure.
+**Pass-through structs** — use `toYaml` for blocks the user fully controls:
+```gotmpl
+resources:
+  {{- toYaml .Values.resources | nindent 12 }}
+```
+
+Never `printf` YAML structure — it breaks on edge cases.
+
+**`toYaml` vs `tpl(toYaml)`** — use plain `toYaml` for values that are static data (resources, nodeSelector, tolerations, affinity). Use `tpl (toYaml .) $` when values may contain Go template expressions — specifically `topologySpreadConstraints` (label selectors referencing chart helpers), `hostnames` (domain names with environment interpolation), and `extraObjects`:
+
+```gotmpl
+{{- toYaml .Values.resources | nindent 12 }}           # static — plain toYaml
+{{- tpl (toYaml .) $ | nindent 8 }}                    # dynamic — tpl wrapping
+```
 
 ## Local validation
 
@@ -323,18 +390,61 @@ Things to look for in rendered output:
 - Consistent indentation (no `nindent` off-by-one)
 - `spec.selector.matchLabels` ⊂ `metadata.labels`
 - CRDs render before the resources that depend on them
+- Chart renders cleanly with just `values.yaml` (no overlays) for local kind use
+
+## NOTES.txt
+
+Optional but recommended. Rendered after `helm install` / `helm upgrade` to show useful post-install information:
+
+```gotmpl
+{{- $fullName := include "my-chart.fullname" . -}}
+1. Application deployed: {{ $fullName }}
+   Namespace: {{ .Release.Namespace }}
+
+2. Check status:
+   kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }}
+```
+
+Include kubectl commands to verify the deployment, access logs, or port-forward to the service. Keep it short — this is what the operator sees immediately after deploy.
+
+## .helmignore
+
+Exclude non-chart files from the Helm package to keep it clean and avoid leaking development artifacts:
+
+```
+.DS_Store
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+__pycache__/
+*.pyc
+chart/
+docs/
+README.md
+```
+
+Include `README.md` in `.helmignore` — it's for humans reading the repo, not for the Helm package. Include language-specific artifacts (`__pycache__/`, `node_modules/`, etc.) relevant to the project.
 
 ## Completion checklist
 
 - [ ] Chart renders cleanly with `helm template` or `task template:dev`
-- [ ] `Chart.yaml` version bumped
-- [ ] Every knob in `values.yaml` has a default and inline comment
+- [ ] Chart renders and deploys on local kind with just `values.yaml` (no overlays needed)
+- [ ] `Chart.yaml` version bumped; `appVersion` reflects real application version; `name` matches directory
+- [ ] Values grouped by resource boundary — each block maps to one Secret / one set of env vars
+- [ ] Every knob has a default; recommended production shapes are commented out
 - [ ] Feature sections use `enabled: false` guard pattern
-- [ ] `_helpers.tpl` defines name, fullname, labels, selectorLabels
+- [ ] `_helpers.tpl` defines name, fullname, chart, labels, selectorLabels
 - [ ] Selector labels don't include version
-- [ ] Secrets use file mounts (env vars only with documented justification)
+- [ ] `serviceAccount.automount` defaults to `false`
 - [ ] `extraObjects: []` present for charts reused across teams
-- [ ] `README.md` describes purpose, prerequisites, and a minimal values example
+- [ ] All scheduling fields present in templates: nodeSelector, affinity, tolerations, topologySpreadConstraints, priorityClassName
+- [ ] See `patterns.md` checklist for workload-specific items
 
 ## Companion skills — offer after completing
 

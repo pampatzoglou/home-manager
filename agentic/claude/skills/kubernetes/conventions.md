@@ -139,7 +139,7 @@ This prevents the most common drift: copy-pasting the same setting into both env
 
 ## CHAIN overlay (this team's third-axis values overlay)
 
-This team's services run the same workload against multiple blockchains, so a third-axis overlay variable named `CHAIN` is added to the Taskfile on top of the canonical `ENV` + `CHART_NAME` axes. This is a specific instance of the generic "third-axis overlay" pattern described in `taskfile.md` (see "Optional extensions" → "Adding a third-axis overlay") — other teams that need a third axis pick their own name (`REGION`, `TENANT`, etc.).
+This team's services run the same workload against multiple blockchains, so a third-axis overlay variable named `CHAIN` is added to the Taskfile on top of the canonical `ENV` + `CHART_NAME` axes. This is a specific instance of the generic "third-axis overlay" pattern described in the `taskfile` skill — other teams that need a third axis pick their own name (`REGION`, `TENANT`, etc.).
 
 Layout for chain-aware charts:
 
@@ -167,7 +167,7 @@ Rules:
 - **Services repo only.** The platform repo doesn't have chains.
 - **Don't duplicate across chain files.** If a value is the same for every chain in an env, promote it to `<env>/values.yaml`. Same DRY principle as `defaults/` vs `<env>/`.
 
-CI matrix for this team includes the chain axis — see `github-actions.md` "Handling a third-axis matrix" for the pattern.
+CI matrix for this team includes the chain axis — see the `github-actions` skill "Kubernetes CI" section for the pattern.
 
 ## ArgoCD sync waves
 
@@ -243,7 +243,7 @@ Single source of truth: change the ApplicationSet, and every generated Applicati
 
 ## Templating locally
 
-Use `task template ENV=dev` (or `ENV=prod`) — see the `taskfile` skill and `taskfile.md` for the full Taskfile reference. This is equivalent to:
+Use `task template ENV=dev` (or `ENV=prod`) — see the `taskfile` skill for the full Taskfile reference. This is equivalent to:
 
 ```bash
 helm template <release> deploy/charts/<chart> \

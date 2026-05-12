@@ -93,6 +93,51 @@ Then invoke tasks with `devbox run task <name>`. See the `github-actions` skill 
 - **Not a container.** Devbox uses the host kernel — OS-level differences (macOS vs Linux glibc) can still matter for system-call-heavy tools.
 - **Language dependency versions** (npm packages, go modules, cargo crates) are the language's own lockfile's job. Devbox pins the toolchain, not project deps.
 
+## Kubernetes tooling
+
+When the project deploys to Kubernetes, pin these additional packages:
+
+```json
+{
+  "packages": [
+    "go-task@3.40",
+    "helm@3.16",
+    "kubectl@1.33",
+    "kind@0.27",
+    "skaffold@2.16",
+    "kubeconform@0.7",
+    "kubescape@3",
+    "yq-go@4.45",
+    "jq@1.7"
+  ]
+}
+```
+
+Versions are illustrative — pick the latest stable at repo creation, then update deliberately via `devbox update`.
+
+### Cluster lifecycle scripts
+
+Add kind cluster management to `devbox.json` `shell.scripts`:
+
+```json
+"shell": {
+  "init_hook": [
+    "echo \"devbox ready — helm $(helm version --short 2>/dev/null), kubectl $(kubectl version --client --short 2>/dev/null | head -1)\""
+  ],
+  "scripts": {
+    "cluster:up":    "kind create cluster --name dev --config kind.yaml",
+    "cluster:down":  "kind delete cluster --name dev",
+    "cluster:reset": "devbox run cluster:down && devbox run cluster:up"
+  }
+}
+```
+
+Usage:
+```bash
+devbox run cluster:up     # create the kind cluster (once per machine)
+devbox run cluster:reset  # tear down and recreate
+```
+
 ## When devbox isn't right
 
 | Need | Use instead |

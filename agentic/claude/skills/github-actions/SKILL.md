@@ -182,6 +182,138 @@ concurrency:
 | Fork PRs skip steps | Expected — forks can't access base secrets; guard with `if: secrets.X != ''` |
 | Job slow on first run | Cold Nix store — subsequent runs hit the cache |
 
+## Kubernetes CI
+
+For repos that deploy Helm charts, the CI workflow runs lint, template, and audit as a matrix over environments.
+
+### Standard matrix
+
+```yaml
+strategy:
+  fail-fast: false    # see all environment failures at once
+  matrix:
+    env: [dev, prod]
+```
+
+### .argo/ diff check
+
+ArgoCD reads from `.argo/<env>/` — if the rendered output isn't committed, what's running in the cluster differs from what's in git. Add after `task template:<env>`:
+
+```yaml
+- name: Verify rendered output is committed
+  run: |
+    if ! git diff --quiet .argo/${{ matrix.env }}/; then
+      echo "::error::Rendered output in .argo/${{ matrix.env }}/ differs from committed version."
+      echo "Run 'task template:${{ matrix.env }}' locally and commit the result."
+      git diff --stat .argo/${{ matrix.env }}/
+      exit 1
+    fi
+```
+
+### Third-axis matrix (when applicable)
+
+If the repo uses a third-axis overlay (chain, region, tenant), add it to the matrix:
+
+```yaml
+matrix:
+  env: [dev, prod]
+  chain: [variant1, variant2]
+
+steps:
+  - run: devbox run task template:${{ matrix.env }} CHAIN=${{ matrix.chain }}
+```
+
+### Canonical Kubernetes ci.yaml
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-charts:
+    name: lint (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jetify-com/devbox-install-action@v0.13.0
+        with:
+          enable-cache: true
+      - run: devbox run task lint:${{ matrix.env }}
+
+  template-charts:
+    name: template (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jetify-com/devbox-install-action@v0.13.0
+        with:
+          enable-cache: true
+      - run: devbox run task template:${{ matrix.env }}
+      - name: Verify rendered output is committed
+        run: |
+          if ! git diff --quiet .argo/${{ matrix.env }}/; then
+            echo "::error::Rendered output in .argo/${{ matrix.env }}/ differs."
+            echo "Run 'task template:${{ matrix.env }}' and commit."
+            git diff --stat .argo/${{ matrix.env }}/
+            exit 1
+          fi
+
+  audit-charts:
+    name: audit (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jetify-com/devbox-install-action@v0.13.0
+        with:
+          enable-cache: true
+      - run: devbox run task audit:${{ matrix.env }}
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jetify-com/devbox-install-action@v0.13.0
+        with:
+          enable-cache: true
+      - run: devbox run task test
+```
+
+### Branch protection
+
+Require all matrix job names as separate required checks: `lint (dev)`, `lint (prod)`, `template (dev)`, `template (prod)`, `audit (dev)`, `audit (prod)`, `test`.
+
+### Common Kubernetes CI failures
+
+| Failure | Cause |
+|---|---|
+| `lint failed` on one chart | Missing required value in `defaults/values.yaml` |
+| `.argo/ diff` fails | Chart changed without running `task template:<env>` before commit |
+| `audit` fails with kubescape findings | Fix the manifest or add to `.kubescape/exceptions.json` with a `reason` |
+
 ## Companion skills — offer after completing
 
 When the CI workflow is done, check the repo and offer whichever of these are missing or incomplete:

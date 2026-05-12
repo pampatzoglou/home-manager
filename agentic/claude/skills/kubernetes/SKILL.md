@@ -25,15 +25,15 @@ Identify which mode the task fits, then load the relevant reference. More than o
 
 | Mode | Signals | Read |
 |---|---|---|
-| Authoring | "create a chart", "add a values file", new manifests, scaffolding a component | `helm` skill + `authoring-helm-charts.md` + `resource-standards.md` |
+| Authoring | "create a chart", "add a values file", new manifests, scaffolding a component | `helm` skill (`SKILL.md` + `patterns.md`) + `resource-standards.md` |
 | Reviewing | "review this YAML", "is this safe", "audit", PR-style feedback | `reviewing-manifests.md` (references back into resource-standards) |
 | Troubleshooting | "pod is CrashLooping", "sync is failing", "PVC stuck pending", "DNS not resolving" | `troubleshooting.md` |
 | Operator resources | CNPG, Kafka, Redpanda, ClickHouse, Strimzi CRDs | `resource-standards.md` (operators section) |
 | Helm values / chart structure | values layering, `_helpers.tpl`, `extraObjects`, secrets | `helm` skill |
-| Local dev loop | skaffold, kind cluster, inner loop setup | `skaffold` skill + `skaffold.md` |
-| Environment / tooling setup | devbox, `.envrc`, package pinning | `devbox` skill + `devbox.md` |
-| Taskfile (lint, template, audit) | Taskfile authoring, helm tasks, kubescape | `taskfile` skill + `taskfile.md` |
-| GitHub Actions CI | CI workflow setup, matrix, `.argo/` diff check | `github-actions` skill + `github-actions.md` |
+| Local dev loop | skaffold, kind cluster, inner loop setup | `skaffold` skill |
+| Environment / tooling setup | devbox, `.envrc`, package pinning | `devbox` skill |
+| Taskfile (lint, template, audit) | Taskfile authoring, helm tasks, kubescape | `taskfile` skill |
+| GitHub Actions CI | CI workflow setup, matrix, `.argo/` diff check | `github-actions` skill |
 
 If the user's repo follows the conventions described in `conventions.md`, also read that file. The team uses two layouts: a **platform repo** where top-level folders are namespaces (e.g., `cert-manager/`, `monitoring/datadog/`), and a **services repo** with a `deploy/charts/` + `deploy/argo/` structure. Tells for either: a `defaults/values.yaml` next to `dev/`/`prod/` dirs inside a chart, ArgoCD `Application`/`ApplicationSet` files with `argocd.argoproj.io/sync-wave` annotations, references to `linstor-csi-lvm`, or a `Taskfile.yaml` with `template`/`lint` tasks.
 
