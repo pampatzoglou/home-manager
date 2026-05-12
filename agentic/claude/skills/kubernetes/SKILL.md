@@ -58,12 +58,12 @@ These are non-negotiable for any K8s resource Claude produces or approves. The r
 - **End every chart-modifying task with an audit.** Run `task audit:dev` (or the equivalent `kubescape scan` against the rendered output) and process the findings before declaring the task done. See "End-of-task audit" below.
 
 ### When reviewing
-- Walk the checklist in `references/reviewing-manifests.md`. Be specific in feedback — "missing resource limits on the `app` container" beats "consider resource limits".
+- Walk the checklist in `reviewing-manifests.md`. Be specific in feedback — "missing resource limits on the `app` container" beats "consider resource limits".
 - Distinguish blockers (security, data loss, unbounded resources) from suggestions (label hygiene, naming). Lead with blockers.
 
 ### When troubleshooting
 - Ask for the actual error first: `kubectl describe`, pod events, ArgoCD sync status. Don't guess from symptoms alone if the data is one command away.
-- The decision trees in `references/troubleshooting.md` are organized by symptom (Pending pod, ImagePullBackOff, sync failure, etc.). Jump to the matching one.
+- The decision trees in `troubleshooting.md` are organized by symptom (Pending pod, ImagePullBackOff, sync failure, etc.). Jump to the matching one.
 
 ## End-of-task audit
 

@@ -392,29 +392,7 @@ strategy:
 
 ### HTTP services
 
-Standard pattern for services that expose a health endpoint:
-
-```yaml
-livenessProbe:
-  httpGet:
-    path: /health
-    port: http
-  periodSeconds: 15
-  timeoutSeconds: 3
-  failureThreshold: 3
-readinessProbe:
-  httpGet:
-    path: /ready
-    port: http
-  periodSeconds: 5
-  timeoutSeconds: 2
-startupProbe:
-  httpGet:
-    path: /health
-    port: http
-  failureThreshold: 30
-  periodSeconds: 5
-```
+Use named ports (`http`, `metrics`) in all `httpGet` probes. For standard values and anti-patterns (liveness ≠ readiness thresholds, slow-start `startupProbe`, TCP vs HTTP) see `kubernetes/resource-standards.md` — the canonical defaults apply here too.
 
 ### Non-HTTP workers (heartbeat file)
 
@@ -458,6 +436,7 @@ imagePullSecrets:
 
 image:
   tag: ""    # set by CI — commit SHA or release tag
+  digest: ""
 
 podAnnotations:
   reloader.stakater.com/auto: "true"
@@ -483,18 +462,7 @@ securityContext:
   allowPrivilegeEscalation: false
   runAsNonRoot: true
   runAsUser: 1000
-
-volumes:
-  - emptyDir: {}
-    name: tmp
-
-volumeMounts:
-  - name: tmp
-    mountPath: /tmp
 ```
-
-The `/tmp` emptyDir is required when `readOnlyRootFilesystem: true` — most applications need a writable temp directory, and the heartbeat liveness probe writes to `/tmp/heartbeat`.
-
 ---
 
 ## Deployment template skeleton
@@ -585,7 +553,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          # Probes — HTTP or heartbeat depending on workload type
+          # Probes — HTTP depending on workload type
           livenessProbe:
             httpGet:
               path: /health
@@ -660,6 +628,356 @@ service:
 ```
 
 Use named ports (`http`, `metrics`, `grpc`) — they're referenced by probes, ServiceMonitors, and HTTPRoutes. Only create a Service for workloads that receive traffic (HTTP APIs, gRPC services). Background consumers/producers don't need one.
+
+---
+
+## Multi-deployment charts
+
+When a single chart deploys multiple components (frontend + backend + worker, or per-tenant deployments), organize templates by component and use annotations to distinguish them.
+
+### When to use multi-deployment vs separate charts
+
+| Pattern | Use when |
+|---------|----------|
+| **Multi-deployment single chart** | Components share lifecycle, values, and version. Deploy/rollback as one unit. Examples: frontend + backend + worker in a monorepo. |
+| **Separate charts** | Components have independent lifecycles, separate teams, or different release cadences. Compose via ArgoCD ApplicationSet. |
+
+### Folder structure
+
+```
+my-chart/
+├── templates/
+│   ├── _helpers.tpl
+│   ├── frontend/
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   ├── hpa.yaml
+│   │   └── httproute.yaml
+│   ├── backend/
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   ├── hpa.yaml
+│   │   └── httproute.yaml
+│   ├── worker/
+│   │   └── deployment.yaml
+│   ├── shared/
+│   │   ├── secrets.yaml
+│   │   ├── serviceaccount.yaml
+│   │   └── pdb.yaml
+│   └── NOTES.txt
+```
+
+Group by component when each has multiple resources. Use `shared/` for resources used by all components (ServiceAccount, shared Secrets, NetworkPolicy).
+
+### Component-scoped helpers
+
+Extend `_helpers.tpl` with component-aware helpers:
+
+```gotmpl
+{{- define "my-chart.componentName" -}}
+{{- $component := .component -}}
+{{- if $component -}}
+{{- printf "%s-%s" (include "my-chart.fullname" .root) $component | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- include "my-chart.fullname" .root -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "my-chart.componentLabels" -}}
+{{ include "my-chart.labels" .root }}
+app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+
+{{- define "my-chart.componentSelectorLabels" -}}
+{{ include "my-chart.selectorLabels" .root }}
+app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+```
+
+Usage in templates:
+
+```gotmpl
+# frontend/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "my-chart.componentName" (dict "root" . "component" "frontend") }}
+  labels:
+    {{- include "my-chart.componentLabels" (dict "root" . "component" "frontend") | nindent 4 }}
+    {{- with .Values.frontend.podLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "my-chart.componentSelectorLabels" (dict "root" . "component" "frontend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "my-chart.componentLabels" (dict "root" . "component" "frontend") | nindent 8 }}
+        {{- with .Values.frontend.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.frontend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+```
+
+### Component label conventions
+
+Standard labels for multi-component charts:
+
+```yaml
+labels:
+  role: web | worker | cron | infra | data
+  component-type: frontend | backend | api | consumer | producer | sidecar
+  tier: presentation | application | data | cache
+```
+
+These labels help with:
+- Filtering in dashboards and log aggregation (`kubectl get pods -l role=web`)
+- Network policy rules (`role: web` can receive ingress, `role: worker` cannot)
+- Cost allocation and chargeback
+- Automated security scanning (different rules for `tier: presentation` vs `tier: data`)
+- Label selectors in monitoring, backup policies, and other controllers
+
+Place them in both `metadata.labels` (Deployment level) and `spec.template.metadata.labels` (Pod level) so they're available for selection at both the workload and pod level.
+
+### Values structure for multiple components
+
+```yaml
+# Global settings shared by all components
+image:
+  repository: ghcr.io/example/myapp
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: registry-credentials
+
+# Component-specific overrides
+frontend:
+  enabled: true
+  replicaCount: 2
+  image:
+    tag: "v1.4.2"
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+  podLabels:
+    role: web
+    component-type: frontend
+    tier: presentation
+
+backend:
+  enabled: true
+  replicaCount: 3
+  image:
+    tag: "v1.4.2"
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+  podLabels:
+    role: web
+    component-type: backend
+    tier: application
+
+worker:
+  enabled: true
+  replicaCount: 5
+  image:
+    tag: "v1.4.2"
+  service:
+    enabled: false  # workers don't serve traffic
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  podLabels:
+    role: worker
+    component-type: consumer
+    tier: application
+
+# Shared configuration
+database:
+  host: postgres.default.svc.cluster.local
+  port: "5432"
+  externalSecret:
+    enable: true
+    name: my-app-db-credentials
+```
+
+### Component image helper
+
+When components use different images or tags, extend the image helper:
+
+```gotmpl
+{{- define "my-chart.componentImage" -}}
+{{- $component := .component -}}
+{{- $componentConfig := index .root.Values $component -}}
+{{- $globalImage := .root.Values.image -}}
+{{- $repository := $componentConfig.image.repository | default $globalImage.repository -}}
+{{- $tag := $componentConfig.image.tag | default $globalImage.tag | default .root.Chart.AppVersion -}}
+{{- $digest := $componentConfig.image.digest | default $globalImage.digest -}}
+{{- if $digest -}}
+  {{- printf "%s:%s@%s" $repository $tag $digest -}}
+{{- else -}}
+  {{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+{{- end -}}
+```
+
+Usage:
+
+```gotmpl
+image: {{ include "my-chart.componentImage" (dict "root" . "component" "frontend") }}
+```
+
+### Disabling components
+
+Guard each component's templates with an `enabled` flag:
+
+```gotmpl
+# frontend/deployment.yaml
+{{- if .Values.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+...
+{{- end }}
+```
+
+This allows per-environment component control:
+
+```yaml
+# dev/values.yaml
+frontend:
+  enabled: true
+  replicaCount: 1
+
+backend:
+  enabled: true
+  replicaCount: 1
+
+worker:
+  enabled: false  # disabled in dev
+```
+
+### Iteration pattern for homogeneous components
+
+When deploying N identical components with different config (per-tenant, per-chain), use iteration instead of folders:
+
+```gotmpl
+# templates/tenant-deployments.yaml
+{{- range $tenant, $config := .Values.tenants }}
+{{- if $config.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "my-chart.fullname" $ }}-{{ $tenant }}
+  labels:
+    {{- include "my-chart.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: tenant
+    tenant: {{ $tenant }}
+    role: worker
+    component-type: consumer
+spec:
+  replicas: {{ $config.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "my-chart.selectorLabels" $ | nindent 6 }}
+      tenant: {{ $tenant }}
+  template:
+    metadata:
+      labels:
+        {{- include "my-chart.labels" $ | nindent 8 }}
+        tenant: {{ $tenant }}
+        role: worker
+        component-type: consumer
+    spec:
+      containers:
+        - name: processor
+          image: {{ include "my-chart.image" $ }}
+          env:
+            - name: TENANT_ID
+              value: {{ $tenant | quote }}
+            - name: TENANT_CONFIG
+              value: {{ $config.endpoint | quote }}
+          resources:
+            {{- toYaml $config.resources | nindent 12 }}
+{{- end }}
+{{- end }}
+```
+
+Values:
+
+```yaml
+tenants:
+  acme:
+    enabled: true
+    replicaCount: 2
+    endpoint: "https://acme.example.com"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  globex:
+    enabled: true
+    replicaCount: 3
+    endpoint: "https://globex.example.com"
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+  initech:
+    enabled: false  # disabled tenant
+```
+
+**Important:** Use `$` to reference the root context inside `range`. `.` inside the loop is the current iteration value.
+
+### NOTES.txt for multi-component charts
+
+Show status for each enabled component:
+
+```gotmpl
+{{- $fullName := include "my-chart.fullname" . -}}
+Multi-component deployment: {{ $fullName }}
+
+Enabled components:
+{{- if .Values.frontend.enabled }}
+- Frontend: {{ $fullName }}-frontend
+  Port: {{ .Values.frontend.service.port }}
+{{- end }}
+{{- if .Values.backend.enabled }}
+- Backend: {{ $fullName }}-backend
+  Port: {{ .Values.backend.service.port }}
+{{- end }}
+{{- if .Values.worker.enabled }}
+- Worker: {{ $fullName }}-worker (no service)
+{{- end }}
+
+Check status:
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }}
+
+View frontend logs:
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=frontend -n {{ .Release.Namespace }}
+```
 
 ---
 
@@ -1213,3 +1531,16 @@ In addition to the foundations checklist in `SKILL.md`:
 - [ ] Image tag pinned (no `:latest` in committed manifests)
 - [ ] No literal credentials in env overlays — ExternalSecret references only
 - [ ] `automountServiceAccountToken: false` unless the workload calls the API server
+
+**Multi-deployment charts:**
+
+- [ ] Templates organized in component folders (`frontend/`, `backend/`, `worker/`, `shared/`)
+- [ ] Component-scoped helpers defined: `componentName`, `componentLabels`, `componentSelectorLabels`
+- [ ] `app.kubernetes.io/component` label present on all multi-component resources
+- [ ] Component labels defined: `role`, `component-type`, `tier` (both Deployment and Pod level)
+- [ ] Each component has `enabled: false` toggle for per-environment control
+- [ ] Component values nested under component name (`.Values.frontend.*`, `.Values.backend.*`)
+- [ ] `componentImage` helper supports per-component image/tag overrides with global fallback
+- [ ] NOTES.txt shows status for each enabled component
+- [ ] For iteration pattern: use `$` for root context inside `range` loops
+- [ ] Component selectors include component identifier (label or tenant name) for proper isolation

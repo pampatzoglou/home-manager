@@ -27,7 +27,7 @@ platform-repo/
 │       ├── prod/values.yaml
 │       └── templates/
 ├── monitoring/                   # ← namespace with multiple charts
-│   ├── datadog/                  # ← chart
+│   ├── prometheus/               # ← chart
 │   │   ├── Chart.yaml
 │   │   ├── values.yaml
 │   │   ├── defaults/values.yaml

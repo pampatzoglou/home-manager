@@ -47,7 +47,6 @@ in {
     ./modules/kubernetes.nix
     ./modules/kitty.nix
     ./modules/claude.nix
-    # ./modules/llm.nix
     ./modules/gc.nix
   ];
 }

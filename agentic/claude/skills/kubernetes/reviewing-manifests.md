@@ -33,7 +33,6 @@ Walk this for each workload resource. Pull in `resource-standards.md` for the ac
 ### Image hygiene — blocker tier
 - [ ] No `:latest` tag in committed manifests
 - [ ] No `image:` lines without a tag at all (defaults to `:latest`)
-- [ ] `imagePullPolicy: IfNotPresent` for tagged images (Always wastes pulls)
 
 ### Probes
 - [ ] HTTP services have `readinessProbe` (otherwise Service load-balances to not-yet-ready pods)

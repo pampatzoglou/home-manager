@@ -34,14 +34,11 @@ my-chart/
 ├── defaults/
 │   └── values.yaml          # DRY operational baseline — true for every cluster deployment
 ├── dev/
-│   ├── values.yaml          # dev env deltas (or single-variant charts)
-│   ├── btc.yaml             # variant overlays — one per variant/chain/tenant
-│   ├── eth.yaml
-│   └── op.yaml
+│   ├── values.yaml          # dev env deltas
+│   └── <variant>.yaml       # optional — one per variant/chain/tenant
 ├── prod/
 │   ├── values.yaml
-│   ├── btc.yaml
-│   └── eth.yaml
+│   └── <variant>.yaml
 ├── templates/
 │   ├── _helpers.tpl
 │   ├── deployment.yaml      # or cronjob.yaml, statefulset.yaml
@@ -167,8 +164,6 @@ resources: {}
 
 autoscaling:
   enabled: false
-# autoscaling:
-#   enabled: true
 #   minReplicas: 2
 #   maxReplicas: 10
 #   targetCPUUtilizationPercentage: 80
@@ -178,7 +173,6 @@ autoscaling:
 
 pdb:
   enabled: false
-# pdb:
 #   enabled: true
 #   maxUnavailable: 1
 

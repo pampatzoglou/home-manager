@@ -4,58 +4,77 @@ description: Perform thorough code reviews covering security, quality, performan
 user-invocable: true
 ---
 
-# Code Review Skill
+# Code Review
 
-## Purpose
-Perform thorough code reviews focusing on:
-- Code quality and maintainability
-- Security vulnerabilities
-- Performance considerations
-- Best practices adherence
-- Test coverage
+## Load context first
 
-## Usage
-When reviewing code, check for:
+Before starting the review, identify the tech stack and load the relevant skills:
+
+| Stack present | Also load |
+|---|---|
+| Helm charts, Kubernetes manifests | `kubernetes` skill + `helm` skill |
+| Terraform / HCL | `terraform` skill |
+| GitHub Actions workflows | `github-actions` skill |
+| Nix expressions / home-manager | _(use CLAUDE.md Nix guidance)_ |
+
+When those skills are loaded, apply their checklists as additional review criteria — don't just use the generic checklist below.
+
+## Review checklist
 
 ### Security
-- [ ] No hardcoded credentials or API keys
-- [ ] Input validation for user-provided data
-- [ ] Proper error handling without information leakage
-- [ ] Dependencies are up to date and vetted
+- [ ] No hardcoded credentials, API keys, or tokens
+- [ ] Input validation at system boundaries (user input, external APIs)
+- [ ] Proper error handling without information leakage in responses
+- [ ] Dependencies vetted and pinned to specific versions
 - [ ] Secrets managed via environment variables or secret managers
 
-### Code Quality
-- [ ] Clear, self-documenting variable and function names
-- [ ] Functions do one thing well (single responsibility)
-- [ ] DRY principle followed (no unnecessary duplication)
-- [ ] Appropriate abstraction levels
-- [ ] Consistent with project style guide
-- [ ] Error handling is explicit and comprehensive
+### Code quality
+- [ ] Names are self-documenting (no need to read the body to understand the purpose)
+- [ ] Functions do one thing; side effects are explicit
+- [ ] No unnecessary duplication — shared logic extracted, not copy-pasted
+- [ ] Error handling is explicit; no silent failures
+- [ ] Consistent with project style guide and formatter settings
 
 ### Performance
-- [ ] No obvious performance bottlenecks
-- [ ] Efficient algorithms and data structures
-- [ ] Resource cleanup (connections, file handles, etc.)
-- [ ] Appropriate caching where beneficial
-- [ ] Database queries optimized (indexes, n+1 queries)
+- [ ] No obvious hot-path bottlenecks (tight loops doing unnecessary work)
+- [ ] Resources cleaned up (connections, file handles, goroutines, locks)
+- [ ] DB queries are indexed and avoid N+1 patterns
+- [ ] Caching applied where reads dominate and staleness is acceptable
 
 ### Testing
 - [ ] Critical paths have test coverage
-- [ ] Tests are meaningful and not just for coverage
-- [ ] Edge cases considered
-- [ ] Tests are maintainable and clear
-- [ ] Integration tests for critical workflows
+- [ ] Tests are behaviour-focused, not implementation-focused
+- [ ] Edge cases and error paths tested, not just happy path
+- [ ] Integration tests for code that crosses system boundaries
+- [ ] Tests are maintainable — no magic values, clear arrange/act/assert
 
 ### Documentation
-- [ ] Complex logic has explanatory comments
-- [ ] Public APIs documented
-- [ ] README updated if user-facing changes
-- [ ] Breaking changes clearly noted
-- [ ] Migration guides for breaking changes
+- [ ] Complex *why* has a comment; obvious *what* does not
+- [ ] Public APIs have a one-line summary
+- [ ] Breaking changes noted; migration path described
+- [ ] README updated if user-facing behaviour changed
 
-### Nix-Specific (when applicable)
-- [ ] Pure functions preferred
-- [ ] Proper use of `lib` functions
-- [ ] Formatted with `nixpkgs-fmt`
-- [ ] Dependencies pinned appropriately
-- [ ] Build reproducibility maintained
+### Nix-specific (when applicable)
+- [ ] Pure functions preferred; impure use is justified
+- [ ] Proper use of `lib` functions (avoid reimplementing what nixpkgs provides)
+- [ ] Formatted with `nixpkgs-fmt` or `alejandra`
+- [ ] Dependencies pinned via `flake.lock` or explicit hash
+- [ ] Build reproducibility not broken (no `builtins.currentSystem` in derivations)
+
+## How to give feedback
+
+Lead with **blockers** (security issues, data loss, unbounded resources, broken correctness) before suggestions. For each finding:
+- State the file and line
+- Say what the problem is and *why* it matters
+- Give a concrete fix or ask a clarifying question if intent is unclear
+
+Distinguish: **must fix** (blocker) / **should fix** (quality / best practice) / **consider** (style, optional improvement).
+
+## Companion skills — offer after completing
+
+| Skill | Offer when |
+|---|---|
+| `debugging` | Review uncovered a subtle bug whose root cause isn't obvious |
+| `tidy` | Mechanical style drift found (indentation, quoting, trailing whitespace) |
+| `prune` | Dead code, unused variables, or orphaned files found |
+| `document` | README or architecture docs are missing or out of date |

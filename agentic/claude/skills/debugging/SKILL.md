@@ -130,3 +130,12 @@ Systematic approach to identifying and fixing bugs efficiently.
 - Code reviews catch bugs before merge
 - Document assumptions and invariants
 - Monitor production for anomalies
+
+## Companion skills — offer after completing
+
+| Skill | Offer when |
+|---|---|
+| `code-review` | Bug was introduced by a quality issue that a review would have caught |
+| `tidy` | Debug session revealed mechanical inconsistencies (mismatched config, wrong indentation) |
+| `kubernetes` | Bug is in a Kubernetes workload (probes, resources, scheduling, secrets) |
+| `terraform` | Bug is in infrastructure state or provider configuration |
