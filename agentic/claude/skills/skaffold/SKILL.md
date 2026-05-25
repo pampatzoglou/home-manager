@@ -33,24 +33,9 @@ Loop:
 
 ## Prerequisites
 
-Add to `devbox.json`:
-
-```json
-{
-  "packages": ["skaffold@2.16", "kind@0.27", "helm@3.16", "kubectl@1.33"],
-  "shell": {
-    "scripts": {
-      "cluster:up":    "kind create cluster --name dev --config kind.yaml",
-      "cluster:down":  "kind delete cluster --name dev",
-      "cluster:reset": "devbox run cluster:down && devbox run cluster:up"
-    }
-  }
-}
-```
+Use the Kubernetes tooling package list and cluster lifecycle scripts from the `devbox` skill — it includes `skaffold`, `kind`, `helm`, `kubectl`, and the `cluster:up` / `cluster:down` / `cluster:reset` scripts. Don't duplicate the package list here.
 
 Each developer runs `devbox run cluster:up` once. The cluster persists between sessions until explicitly deleted.
-
-See the `devbox` skill for `.envrc` setup and general devbox usage.
 
 ## Canonical skaffold.yaml
 
@@ -117,19 +102,6 @@ skaffold delete   # tear down what skaffold deployed
 - **Profiles are for local dev variations** (overlay selection, debug builds), not for targeting different clusters.
 
 ## Chart-specific configuration
-
-### Values ordering must match task template
-
-The `valuesFiles` list must use the same precedence order as `task template ENV=dev`:
-
-```yaml
-valuesFiles:
-  - deploy/charts/my-service/values.yaml
-  - deploy/charts/my-service/defaults/values.yaml
-  - deploy/charts/my-service/dev/values.yaml
-```
-
-If `task template ENV=dev` works but `skaffold dev` doesn't, the discrepancy is almost always a values file ordering or missing file issue. Use `skaffold render | less` to inspect what skaffold actually produces.
 
 ### dev/values.yaml overrides for kind
 

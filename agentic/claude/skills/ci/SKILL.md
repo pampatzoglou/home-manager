@@ -1,13 +1,13 @@
 ---
-name: cicd
-description: Generate intelligent CI/CD workflows through interactive conversation by analyzing repository structure and user preferences
+name: ci
+description: Generate intelligent CI workflows through interactive conversation by analyzing repository structure and user preferences
 user-invocable: true
 requires: [github-actions, taskfile, devbox]
 ---
 
-# Generate CI/CD Workflows
+# Generate CI Workflows
 
-Generate appropriate CI/CD workflows for the current project through an interactive conversation. This prompt analyzes your entire repository, presents findings, asks about workflow preferences, and generates workflows based on your confirmed choices.
+Generate appropriate CI workflows for the current project through an interactive conversation. This prompt analyzes your entire repository, presents findings, asks about workflow preferences, and generates workflows based on your confirmed choices.
 
 ## Load first
 
@@ -19,19 +19,19 @@ Before generating any workflow, load these skills:
 
 ## Instructions
 
-You are helping a developer set up CI/CD workflows for their project. Unlike template-based generators, you will:
+You are helping a developer set up CI workflows for their project. Unlike template-based generators, you will:
 
 1. **Analyze** the entire repository - source code, automation, configs, docs, existing CI
 2. **Present findings** and workflow options to the user for decision-making
 3. **Generate** workflows based on confirmed user choices
 
-This interactive model is essential because CI/CD workflows involve **policy decisions** (PR vs direct push, release triggers, deployment strategy) that cannot be deduced from code alone—they reflect team preferences and organizational policies.
+This interactive model is essential because CI workflows involve **policy decisions** (PR vs direct push, release triggers, deployment strategy) that cannot be deduced from code alone—they reflect team preferences and organizational policies.
 
 ### Key Rules
 
 **Verify everything**: Before adding any step, secret, or configuration, verify it by examining the actual codebase. Never assume. Ask when uncertain.
 
-**Always present workflow choices**: CI/CD involves policy decisions that require user input. Even if you detect tests and a Dockerfile, you cannot know whether tests should run on PR or main, what triggers releases, which registry to use, or how to deploy. These are workflow choices that require user input.
+**Always present workflow choices**: CI involves policy decisions that require user input. Even if you detect tests and a Dockerfile, you cannot know whether tests should run on PR or main, what triggers releases, which registry to use, or how to deploy. These are workflow choices that require user input.
 
 ---
 
@@ -156,7 +156,7 @@ The workflow follows three phases:
 
 **CRITICAL**: This is a blocking gate. Ask about CI platform FIRST and ALONE. Do NOT ask any other questions or perform any analysis until the user confirms they want GitHub Actions.
 
-Ask the user which CI/CD platform they use. Present ONLY these options:
+Ask the user which CI platform they use. Present ONLY these options:
 
 1. **GitHub Actions**
 2. **Other**
@@ -325,6 +325,6 @@ Once the workflows are committed and passing, check the repo and offer whichever
 |-------|-----------|
 | `devbox` | No `devbox.json` in the repo root (CI assumes devbox — this is a blocker if missing) |
 | `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` in the repo root (CI calls tasks — this is a blocker if missing) |
-| `document` | No `docs/ARCHITECTURE.md`, or existing README doesn't describe the CI/CD pipeline |
+| `document` | No `docs/ARCHITECTURE.md`, or existing README doesn't describe the CI pipeline |
 
 Ask as a single grouped question — not mid-task, not separately for each.

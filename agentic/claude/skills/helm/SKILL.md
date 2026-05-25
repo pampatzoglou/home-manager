@@ -115,18 +115,30 @@ image:
   pullPolicy: IfNotPresent
 
 # -- Database connection and credentials.
-# -- Maps to the `-db` Secret and DB_* env vars.
+# -- Maps to the `-db` Secret, DB_* env vars, and /var/run/secrets/db/* files.
 database:
   host: ""
   port: "5432"
   database: ""
   user: "postgres"
-  password: "localdev"
+  password: "postgres"
+  mountPath: /var/run/secrets/db    # always mounted; files: .../db/<key>
   externalSecret:
     enable: false
-    name: ""
+    name: ""                 # name of a pre-existing Secret
     userKey: username
     passwordKey: password
+  vault:
+    enable: false
+    method: GET
+    provider:
+      server: http://vault.vault:8200
+      version: v2
+    resultType: Data    
+    path: ""                 # Vault path — active when top-level vault.enable: true
+    userKey: username        # key name in the Vault-generated Secret
+    passwordKey: password
+    refreshInterval: "1h"
 
 # -- Kafka connection and SASL credentials.
 # -- Maps to the `-kafka` Secret and KAFKA_* env vars.
@@ -137,16 +149,40 @@ kafka:
     mechanism: SCRAM-SHA-512
     username: ""
     password: ""
+    mountPath: /var/run/secrets/kafka    # always mounted; files: .../kafka/<key>
     externalSecret:
       enable: false
-      name: ""
+      name: ""                           # name of a pre-existing Secret
+      usernameKey: username
       passwordKey: password
+    vault:
+      enable: false
+      method: GET
+      provider:
+        server: http://vault.vault:8200
+        version: v2
+      resultType: Data
+      path: ""                           # e.g. "kafka/creds/my-role"
+      usernameKey: username
+      passwordKey: password
+      refreshInterval: "1h"
+
+# -- Chart-level Vault Kubernetes auth — shared by all credential blocks.
+# -- Each credential block's vault.provider.server carries its own Vault URL.
+vault:
+  mountPath: kubernetes      # Vault Kubernetes auth mount
+  role: ""                   # Vault role — must have bound_service_account_names + bound_service_account_namespaces set
 ```
 
-Each top-level resource block maps 1:1 to:
-- A conditional Secret in `secrets.yaml` (rendered when `externalSecret.enable: false`)
-- The `secretKeyRef` env vars in the Deployment that consume it
-- An ExternalSecret reference in the env overlay (when `externalSecret.enable: true`)
+Each top-level resource block maps 1:1 to a credential source:
+
+| Mode | Activated by | What renders |
+|---|---|---|
+| Chart-internal | `database.vault.enable: false` + `externalSecret.enable: false` | Secret with inline `user`/`password` values |
+| External reference | `database.vault.enable: false` + `externalSecret.enable: true` | Nothing — references a pre-existing Secret by name |
+| Vault dynamic | `database.vault.enable: true` + `vault.path` set | VaultDynamicSecret + ExternalSecret |
+
+See `postgres.md` for the full database template chain and `kafka.md` for Kafka SASL. See `patterns.md` for general patterns (extraObjects, file mounts, multi-secret naming).
 
 ### Commented-out recommended values
 
@@ -217,6 +253,8 @@ volumes: []
 volumeMounts: []
 extraObjects: []
 ```
+
+Set `podSecurityContext` and `securityContext` values from the `kubernetes` skill's `resource-standards.md` — don't invent security context defaults here.
 
 ### ServiceAccount
 
@@ -330,6 +368,8 @@ Add a `render` helper for `extraObjects` support (see patterns.md):
 ```
 
 ## Template foundations
+
+These patterns apply to Helm chart templates. For Go template usage in ArgoCD ApplicationSet generators (`{{ .app }}`, `{{ .env }}`, matrix generators) see the `argo-applicationset` skill.
 
 **Conditional resource** — guard the whole resource, not individual lines:
 ```gotmpl
