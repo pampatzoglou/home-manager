@@ -249,6 +249,8 @@ USER app
 
 Use distroless unless the app requires a shell, a package manager, or system tools at runtime.
 
+The distroless `nonroot` uid 65532 aligns with `runAsUser: 65532` in the `kubernetes` skill's `resource-standards.md` — use consistent UIDs across Dockerfile and pod security context.
+
 **Architecture-agnostic binary downloads** (when a binary must be fetched from a URL):
 ```dockerfile
 RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \

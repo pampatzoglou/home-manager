@@ -43,6 +43,8 @@ Split when a meaningful subset of services has no variant axis (e.g., a manageme
 
 ## Go templates — always
 
+Go template syntax here is used for field substitution in ApplicationSet generator output (variable references like `{{ .app }}`, `{{ .env }}`). For Helm chart template patterns (conditionals, named helpers, `toYaml`) see the `helm` skill.
+
 Use `goTemplate: true` on every ApplicationSet. The legacy `{{app}}` syntax is deprecated and less expressive.
 
 ```yaml
@@ -241,24 +243,24 @@ The `deploy` branch strategy is common: `main`/`develop` holds application sourc
 
 ## Values file wiring
 
-The `valueFiles` list must match exactly what `helm template` and `task template:<env>` use:
-
-```yaml
-valueFiles:
-  - values.yaml                   # helm scaffold defaults
-  - defaults/values.yaml          # cluster-wide DRY layer
-  - "{{ .env }}/values.yaml"      # env-specific overrides
-ignoreMissingValueFiles: true     # always — not every combination has an override file
-```
-
-When a second axis adds per-variant overrides within an environment, add a fourth file:
+The `valueFiles` list must match exactly what `helm template` and `task template:<env>` use. The canonical layer ordering and its rationale live in the `helm` skill.
 
 ```yaml
 valueFiles:
   - values.yaml
   - defaults/values.yaml
   - "{{ .env }}/values.yaml"
-  - "{{ .env }}/{{ .variant }}.yaml"   # variant-specific delta on top of env
+ignoreMissingValueFiles: true     # always — not every chart has an override for every env
+```
+
+When a second axis adds per-variant overrides:
+
+```yaml
+valueFiles:
+  - values.yaml
+  - defaults/values.yaml
+  - "{{ .env }}/values.yaml"
+  - "{{ .env }}/{{ .variant }}.yaml"
 ignoreMissingValueFiles: true
 ```
 

@@ -49,68 +49,7 @@ Rendered output examples:
 
 ## ExternalSecret toggle pattern
 
-Every credential block in `values.yaml` includes an `externalSecret` sub-key. When disabled, the chart renders a placeholder Secret for local development. When enabled, the template references a pre-existing Secret (managed by `external-secrets`, Vault, or secret replication).
-
-### Values shape
-
-```yaml
-database:
-  host: ""
-  port: "5432"
-  database: ""
-  user: "postgres"
-  password: "localdev"
-  externalSecret:
-    enable: false
-    name: ""
-    userKey: username
-    passwordKey: password
-```
-
-### secrets.yaml — conditional chart-internal Secret
-
-```gotmpl
-{{- if not .Values.database.externalSecret.enable }}
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ include "my-chart.fullname" . }}-db
-  labels:
-    {{- include "my-chart.labels" . | nindent 4 }}
-type: Opaque
-stringData:
-  user: {{ .Values.database.user | quote }}
-  password: {{ .Values.database.password | quote }}
-{{- end }}
-```
-
-### Deployment — secretKeyRef switching
-
-```gotmpl
-- name: DB_USER
-  valueFrom:
-    secretKeyRef:
-      {{- if .Values.database.externalSecret.enable }}
-      name: {{ .Values.database.externalSecret.name }}
-      key: {{ .Values.database.externalSecret.userKey }}
-      {{- else }}
-      name: {{ include "my-chart.fullname" . }}-db
-      key: user
-      {{- end }}
-- name: DB_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      {{- if .Values.database.externalSecret.enable }}
-      name: {{ .Values.database.externalSecret.name }}
-      key: {{ .Values.database.externalSecret.passwordKey }}
-      {{- else }}
-      name: {{ include "my-chart.fullname" . }}-db
-      key: password
-      {{- end }}
-```
-
-Both branches use `secretKeyRef` — the only difference is where `name` and `key` come from. When external, both are user-configurable via values. When chart-internal, the name is derived from `fullname` and the keys are fixed.
+Every credential block in `values.yaml` includes an `externalSecret` and a `vault` sub-key. Three modes in priority order: `<cred>.vault.enable` > `<cred>.externalSecret.enable` > chart-internal inline values. For the full template chain — values shape, `secrets.yaml` guard, `secretKeyRef` three-way branch, credential file mounts — see `postgres.md` (database) and `kafka.md` (SASL).
 
 ### Multi-secret naming convention
 
@@ -169,6 +108,61 @@ extraObjects:
             key: /foo/bar
             property: url
 ```
+
+### Vault dynamic credentials — self-contained generator
+
+When `<cred>.vault.enable: true`, the `VaultDynamicSecret` generator and the `ExternalSecret` that consumes it render together under a **single guard** in `secrets.yaml`. No separate `SecretStore` is needed — `VaultDynamicSecret` carries its own auth config inline. ESO authenticates with Vault using the chart's ServiceAccount (name + `{{ .Release.Namespace }}`) via the Kubernetes `TokenRequest` API — pod `automountServiceAccountToken` is unaffected.
+
+The generator name uses a `<backend>-generator` suffix to distinguish it from the Secret it produces. The `ExternalSecret` target name is identical to the chart-internal Secret name, so Deployment wiring (volumeMount + secretKeyRef) is unchanged across all three credential modes.
+
+The chart-level `vault.mountPath` and `vault.role` supply the Kubernetes auth config shared by all credential blocks. The Vault role must have `bound_service_account_names` and `bound_service_account_namespaces` configured to match this chart's SA name and namespace. For charts with multiple credential blocks, each gets its own generator + ExternalSecret pair under its own guard.
+
+For the complete VaultDynamicSecret + ExternalSecret templates, see `postgres.md` and `kafka.md`.
+
+---
+
+## Credential file mounts
+
+All credential Secrets — regardless of source mode (chart-internal, ExternalSecret, or Vault dynamic) — are **always** mounted as files at `/var/run/secrets/<type>/`. This gives applications a consistent file path across modes, pairs cleanly with `readOnlyRootFilesystem: true`, and lets secrets-file libraries (e.g. Spring Cloud Vault, Consul Template consumers) work without env var plumbing.
+
+Add `mountPath` to each credential block in `values.yaml`:
+
+```yaml
+database:
+  mountPath: /var/run/secrets/db    # produces /var/run/secrets/db/<key>
+kafka:
+  sasl:
+    mountPath: /var/run/secrets/kafka
+```
+
+In the Deployment template, credential volumes are rendered **unconditionally** — hard-coded before the user-defined pass-through `volumes`/`volumeMounts`:
+
+```gotmpl
+          volumeMounts:
+            - name: db-credentials
+              mountPath: {{ .Values.database.mountPath | default "/var/run/secrets/db" }}
+              readOnly: true
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: db-credentials
+          secret:
+            secretName: {{ include "my-chart.fullname" . }}-db
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+```
+
+The Secret name (`{{ fullname }}-db`) is stable across all three modes — the mount wiring is identical regardless of how the Secret was populated. Key names inside the mounted files vary by mode:
+
+| Mode | Keys available as files |
+|---|---|
+| Chart-internal | `user`, `password` |
+| ExternalSecret | whatever keys the upstream store provides |
+| Vault dynamic | `database.vault.userKey`, `database.vault.passwordKey` (e.g. `username`, `password`) |
+
+Env vars (`secretKeyRef`) co-exist with the file mount. Applications reading from files can ignore env vars; applications reading env vars still have files available at the same path. Both point to the same underlying Secret.
 
 ---
 
@@ -538,17 +532,7 @@ spec:
             - name: ENV
               value: {{ .Values.config.env | quote }}
 
-            # 3. Secret references (grouped by resource block)
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  {{- if .Values.database.externalSecret.enable }}
-                  name: {{ .Values.database.externalSecret.name }}
-                  key: {{ .Values.database.externalSecret.userKey }}
-                  {{- else }}
-                  name: {{ include "my-chart.fullname" . }}-db
-                  key: user
-                  {{- end }}
+            # 3. Secret references — see postgres.md and kafka.md for the three-way secretKeyRef pattern
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -562,14 +546,20 @@ spec:
             httpGet:
               path: /ready
               port: http
-          {{- with .Values.volumeMounts }}
           volumeMounts:
+            - name: db-credentials
+              mountPath: {{ .Values.database.mountPath | default "/var/run/secrets/db" }}
+              readOnly: true
+            {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
+            {{- end }}
       volumes:
+        - name: db-credentials
+          secret:
+            secretName: {{ include "my-chart.fullname" . }}-db
+        {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -1079,64 +1069,7 @@ spec:
           {{- end }}
 ```
 
-### Migration Job with Helm hooks
-
-For database migrations that must run before the application starts. Uses Helm hook ordering:
-
-```gotmpl
-{{- if .Values.migrate.enabled }}
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ include "my-chart.fullname" . }}-migrate
-  annotations:
-    "helm.sh/hook": post-install,pre-upgrade
-    "helm.sh/hook-weight": "0"
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
-spec:
-  backoffLimit: {{ .Values.migrate.backoffLimit }}
-  ttlSecondsAfterFinished: {{ .Values.migrate.ttlSecondsAfterFinished }}
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: migrate
-          image: {{ include "my-chart.image" . }}
-          command: [...]
-          env:
-            # credentials via secretKeyRef — same toggle pattern
-```
-
-When the migration needs admin credentials (separate from app credentials), create a hook-ordered admin Secret:
-
-```gotmpl
-{{- if and .Values.migrate.enabled (not .Values.database.admin.externalSecret.enable) }}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ include "my-chart.fullname" . }}-db-admin
-  annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "-10"
-    "helm.sh/hook-delete-policy": before-hook-creation
-type: Opaque
-stringData:
-  user: {{ .Values.database.admin.user | quote }}
-  password: {{ .Values.database.admin.password | quote }}
-{{- end }}
-```
-
-Hook weight `-10` ensures the admin Secret exists before the migrate Job (weight `0`) starts.
-
-Values shape:
-```yaml
-migrate:
-  enabled: false
-# migrate:
-#   enabled: true
-#   backoffLimit: 1
-#   ttlSecondsAfterFinished: 600
-```
+For migration Jobs that must run before the application starts, see `postgres.md` — it covers the Helm hook template, admin Secret ordering (weight `-10` before Job at `0`), and the migrate values shape.
 
 ---
 
@@ -1508,10 +1441,10 @@ automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
 In addition to the foundations checklist in `SKILL.md`:
 
 - [ ] Image helper supports tag, digest, and tag+digest (`repo:tag@sha256:...`)
-- [ ] Every credential block has `externalSecret.enable` toggle with configurable `name` and key fields
-- [ ] Chart-internal Secrets rendered only when `externalSecret.enable: false`
-- [ ] `secretKeyRef` env vars switch between external and chart-internal name/key
+- [ ] Credential volumes and volumeMounts rendered unconditionally — hard-coded before pass-through `volumes`/`volumeMounts`, `readOnly: true`
 - [ ] Secret suffixes match values block names (`-db`, `-kafka`, `-node`)
+- [ ] See `postgres.md` checklist for database credential items
+- [ ] See `kafka.md` checklist for Kafka SASL credential items
 - [ ] Config checksum annotation on pod template
 - [ ] Reloader annotation in `defaults/values.yaml` via `podAnnotations`
 - [ ] Downward API metadata env vars present (NAMESPACE, POD_NAME, POD_IP, HOST_IP, NODE_NAME, CPU/MEM request/limit)
@@ -1524,7 +1457,6 @@ In addition to the foundations checklist in `SKILL.md`:
 - [ ] PDB selector uses `selectorLabels` — matches Deployment selector exactly
 - [ ] HPA wires both shorthand and custom `metrics`/`behavior`
 - [ ] Monitoring templates (PodMonitor/ServiceMonitor/PrometheusRule) behind `metrics.enabled` gate
-- [ ] Migration Jobs use correct hook weight ordering (Secret before Job)
 - [ ] CRD templates use `required` and `fail` for input validation
 - [ ] Service uses named ports (`http`, `metrics`, `grpc`)
 - [ ] No duplicate template blocks (e.g., tolerations rendered twice)
