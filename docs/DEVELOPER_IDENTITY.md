@@ -90,7 +90,6 @@ ykman fido access change-pin
 # Verify the PIN is configured
 ykman fido info
 ```
-
 > **Lockout:** FIDO2 has no PUK. After 8 consecutive wrong PIN attempts the application locks permanently and requires `ykman fido reset` (losing all credentials). Store the PIN securely.
 
 ### Key Generation
@@ -105,13 +104,9 @@ ssh-keygen -t ed25519-sk -O resident -O verify-required -O no-touch-required \
 # Access key — PIN + touch required (SSH connections)
 ssh-keygen -t ed25519-sk -O resident -O verify-required \
            -O application=ssh:access -O user=<username> -C "<email>"
-
+           
 # Export all resident keys from the YubiKey with stable names, then remove the generic files
 cd ~/.ssh && ssh-keygen -K
-# Produces:
-#   id_ed25519_sk_rk_git_<username>      id_ed25519_sk_rk_git_<username>.pub
-#   id_ed25519_sk_rk_access_<username>   id_ed25519_sk_rk_access_<username>.pub
-rm ~/.ssh/id_ed25519_sk ~/.ssh/id_ed25519_sk.pub
 
 # Verify credentials on the YubiKey
 ykman fido credentials list
