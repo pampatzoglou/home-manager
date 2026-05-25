@@ -9,7 +9,7 @@ Home-manager manages `~/.config/git/ignore` (global gitignore). All other git co
 [user]
         name = <your-name>
         email = <your-email@example.com>
-        signingkey = ~/.ssh/id_ed25519.pub
+        signingkey = ~/.ssh/id_ed25519_sk_rk_git_<username>.pub
 [gpg]
         format = ssh
 [commit]
@@ -19,7 +19,7 @@ Home-manager manages `~/.config/git/ignore` (global gitignore). All other git co
 [core]
         excludesFile = ~/.config/git/ignore
         untrackedCache = true
-        sshCommand = ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o IdentityAgent=none
+        sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_git_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
 [init]
         defaultBranch = main
 [pull]
@@ -47,16 +47,16 @@ Home-manager manages `~/.config/git/ignore` (global gitignore). All other git co
 [user]
     name = Your Work Name
     email = you@work.com
-    signingkey = ~/.ssh/id_ed25519_work.pub
+    signingkey = ~/.ssh/id_ed25519_sk_rk_git_<username>.pub
 [gpg]
     format = ssh
 [core]
-    sshCommand = ssh -i ~/.ssh/id_ed25519_work -o IdentitiesOnly=yes -o IdentityAgent=none
+    sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_git_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
 ```
 
 ## 🔐 FIDO Key Setup
 
-This configuration assumes you have a YubiKey or compatible FIDO security key for enhanced SSH authentication. The setup uses FIDO keys for passwordless SSH access to personal, Git, and work accounts.
+This configuration assumes you have a YubiKey or compatible FIDO security key for enhanced SSH authentication. The setup uses two resident FIDO keys: a git key (PIN only, no touch) for commit/tag signing and git push, and an access key (PIN + touch) for SSH connections.
 
 ### Assumptions
 
@@ -64,39 +64,78 @@ This configuration assumes you have a YubiKey or compatible FIDO security key fo
 - YubiKey Manager (`ykman`) is installed
 - You want resident keys for portability across devices
 
-- **Mac specific**: The OpenSSH bundled with macOS can not work with resident keys, despite being compatible with them. This is due to a compilation flag that disables this option (--disable-security-key). To work around this, we'll install the latest version of OpenSSH using homebrew
+- **Mac specific**: The OpenSSH bundled with macOS cannot work with resident keys due to a compilation flag (`--disable-security-key`). Install the upstream OpenSSH via Homebrew:
 ```bash
 brew install openssh keychain
 ```
 
-### Key Generation Examples
+### YubiKey Initialization
 
-Generate resident FIDO keys for different purposes:
+Run these steps once per YubiKey before generating any keys.
 
 ```bash
-# Reset FIDO application (CAUTION: deletes all FIDO credentials)
+# Verify the key is detected and note the serial number for your records
+ykman info
+
+# Reset the FIDO2 application
+# CAUTION: deletes ALL FIDO2 credentials and clears the PIN
+# You must physically touch the key when prompted to confirm
 ykman fido reset
 
-# Change PIN for security
+# Set the FIDO2 PIN
+# This PIN gates all verify-required key operations (signing and access)
+# Minimum 4 characters; 8+ alphanumeric recommended
 ykman fido access change-pin
 
-# Personal SSH key (resident, requires touch)
-ssh-keygen -t ed25519-sk -O resident -O application=ssh:personal -O user=<username> -C "<email>"
+# Verify the PIN is configured
+ykman fido info
+```
 
-# Git signing key (no touch required for automation)
-ssh-keygen -t ed25519-sk -O no-touch-required -O application=ssh:git  -O user=<username> -C "<email>"
+> **Lockout:** FIDO2 has no PUK. After 8 consecutive wrong PIN attempts the application locks permanently and requires `ykman fido reset` (losing all credentials). Store the PIN securely.
 
-# List all credentials on YubiKey
+### Key Generation
+
+Generate resident FIDO keys, then export them all at once via `ssh-keygen -K` to get stable, auto-named key handle files. The `_rk_` names produced by `ssh-keygen -K` are the canonical paths referenced everywhere (gitconfig, ssh config) — identical whether on the original machine or recovering on a new one.
+
+```bash
+# Git key — PIN required, no touch (git commit/tag signing and git push)
+ssh-keygen -t ed25519-sk -O resident -O verify-required -O no-touch-required \
+           -O application=ssh:git -O user=<username> -C "<email>"
+
+# Access key — PIN + touch required (SSH connections)
+ssh-keygen -t ed25519-sk -O resident -O verify-required \
+           -O application=ssh:access -O user=<username> -C "<email>"
+
+# Export all resident keys from the YubiKey with stable names, then remove the generic files
+cd ~/.ssh && ssh-keygen -K
+# Produces:
+#   id_ed25519_sk_rk_git_<username>      id_ed25519_sk_rk_git_<username>.pub
+#   id_ed25519_sk_rk_access_<username>   id_ed25519_sk_rk_access_<username>.pub
+rm ~/.ssh/id_ed25519_sk ~/.ssh/id_ed25519_sk.pub
+
+# Verify credentials on the YubiKey
 ykman fido credentials list
+```
 
+### Recovering Keys on a New Device
+
+Resident keys are stored on the YubiKey itself. On a new machine you do not re-generate — you export the existing credentials. The filenames produced are identical to those from the initial setup above.
+
+```bash
+cd ~/.ssh && ssh-keygen -K
+# Writes all resident keys found on the YubiKey:
+#   id_ed25519_sk_rk_git_<username>      id_ed25519_sk_rk_git_<username>.pub
+#   id_ed25519_sk_rk_access_<username>   id_ed25519_sk_rk_access_<username>.pub
 ```
 
 ### How They're Used
 
-- **Personal Keys**: Used for general SSH access and Git operations
-- **Git Keys**: Dedicated for commit signing (no-touch for CI/CD compatibility)
-- **Work Keys**: Isolated for corporate access with touch requirement for security
-- **Resident Keys**: Stored on YubiKey for use across multiple devices
+| Key | Application | Touch | PIN | Purpose |
+|-----|-------------|-------|-----|---------|
+| Git | `ssh:git` | No | Yes | Git commit/tag signing and git push |
+| Access | `ssh:access` | Yes | Yes | SSH connections |
+
+Resident keys are stored on the YubiKey and recoverable on any machine via `ssh-keygen -K`.
 
 The SSH configuration in `modules/security.nix` is pre-configured to use these keys with appropriate security policies.
 
@@ -109,7 +148,7 @@ The SSH configuration in `modules/security.nix` is pre-configured to use these k
 **The Problem:**
 Loading resident keys directly into your SSH agent doesn't work reliably because:
 
-1. The key file (e.g., `~/.ssh/id_ed25519_sk`) is just a reference handle to the FIDO device
+1. The key file (e.g., `~/.ssh/id_ed25519_sk_rk_access_<username>`) is just a reference handle to the FIDO device
 2. The actual signing operation must communicate with the physical security key
 3. SSH agent caching can interfere with the FIDO authentication flow
 
@@ -121,7 +160,7 @@ You must explicitly specify the key file using the `-I` flag when connecting:
 ssh git@github.com
 
 # ✅ CORRECT - Explicitly specify the key
-ssh -i ~/.ssh/id_ed25519_sk git@github.com
+ssh -i ~/.ssh/id_ed25519_sk_rk_access_<username> git@github.com
 ```
 
 #### Git Configuration Implications
@@ -130,11 +169,11 @@ This is why our git configuration uses explicit SSH commands with `-I` and disab
 
 ```ini
 [core]
-    sshCommand = ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o IdentityAgent=none
+    sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_access_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
 ```
 
 **Key flags explained:**
-- `-i ~/.ssh/id_ed25519`: Explicitly specify which key reference to use
+- `-i ~/.ssh/id_ed25519_sk_rk_access_<username>`: Explicitly specify which key reference to use
 - `-o IdentitiesOnly=yes`: Only use the specified key, ignore agent keys
 - `-o IdentityAgent=none`: Disable SSH agent entirely for this connection
 
@@ -147,13 +186,13 @@ Apply the same pattern in your `~/.ssh/config` for reliable FIDO key usage:
 ```ssh
 Host github.com
     User git
-    IdentityFile ~/.ssh/id_ed25519_sk
+    IdentityFile ~/.ssh/id_ed25519_sk_rk_access_<username>
     IdentitiesOnly yes
     IdentityAgent none
 
 Host *.work.com
-    User your-username
-    IdentityFile ~/.ssh/id_ed25519_work_sk
+    User <username>
+    IdentityFile ~/.ssh/id_ed25519_sk_rk_access_<username>
     IdentitiesOnly yes
     IdentityAgent none
 ```
