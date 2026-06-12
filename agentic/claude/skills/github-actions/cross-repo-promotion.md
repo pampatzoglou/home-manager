@@ -31,15 +31,14 @@ Bumping each chart with its own copy-pasted `yq` line (and repeating the service
   deploy-dev:
     name: Deploy to dev
     runs-on: ubuntu-latest
-    needs: [build-push]
+    needs: [...]
     timeout-minutes: 5
-    # Promote only from the default branch, after a successful build.
+    # Promote only from the default branch.
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     permissions:
       id-token: write     # OIDC, only if a prior step needs cloud auth
       contents: read      # cross-repo writes use the App token, NOT GITHUB_TOKEN
     env:
-      ENVIRONMENT: dev
       GITOPS_REPO: my-org/gitops    # the repo ArgoCD watches
       GITOPS_BRANCH: deploy
     steps:
