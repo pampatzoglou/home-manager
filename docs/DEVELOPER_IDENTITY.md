@@ -193,3 +193,251 @@ Host *.work.com
 ```
 
 **TL;DR:** Always use `-i` (IdentityFile) with resident keys and disable the agent (`IdentityAgent=none`) to ensure proper FIDO device communication.
+
+## GPG/OpenPGP Setup
+
+### Overview
+
+A YubiKey 5 has multiple independent applets:
+
+| Applet | Purpose | Managed By |
+|--------|---------|------------|
+| FIDO2 | SSH authentication, git signing | `ssh-keygen`, `ssh-agent` |
+| OpenPGP | GPG encryption, signing, `pass` | `gpg`, `gpg-agent`, `scdaemon` |
+
+These applets do not share keys or interfere with each other. The FIDO setup above handles SSH. This section covers the OpenPGP applet for GPG and `pass`.
+
+Home-manager configures `gpg`, `gpg-agent`, and `scdaemon` automatically via `modules/security.nix`. The steps below cover key generation and YubiKey provisioning, which must be done manually.
+
+### GPG Master Key Generation
+
+Generate a certify-only master key. This key stays offline after subkeys are created — it is only used to issue and revoke subkeys.
+
+> Do this on a trusted machine. For maximum security, use an air-gapped machine or a live USB.
+
+```bash
+# Generate master key (Certify only)
+gpg --full-generate-key --expert
+
+# When prompted:
+#   Key type: (8) RSA (set your own capabilities)
+#   Toggle off Sign, Encrypt, keep only Certify
+#   Key size: 4096
+#   Expiry: 2y (can be extended later without re-provisioning YubiKeys)
+#   Real name: <your-name>
+#   Email: <your-email>
+#   Passphrase: strong, unique passphrase (store securely)
+
+# Note your key ID
+gpg --list-keys --keyid-format 0xlong
+```
+
+### Subkey Creation
+
+Add three subkeys for sign, encrypt, and authenticate. These are the keys that will live on the YubiKey.
+
+```bash
+gpg --expert --edit-key <KEY_ID>
+
+# For each subkey:
+#   addkey
+#   (6) RSA (set your own capabilities)
+#   Toggle to the desired capability, then confirm
+#   Key size: 4096
+#   Expiry: 1y
+
+# Create these three subkeys:
+#   1. Sign only (S)
+#   2. Encrypt only (E)
+#   3. Authenticate only (A)
+
+# Save
+save
+```
+
+After creation, verify:
+```bash
+gpg --list-keys --keyid-format 0xlong <KEY_ID>
+# Should show:
+#   pub   rsa4096/0x... [C]        (master, certify only)
+#   sub   rsa4096/0x... [S]        (sign)
+#   sub   rsa4096/0x... [E]        (encrypt)
+#   sub   rsa4096/0x... [A]        (authenticate)
+```
+
+### Backup Procedures
+
+Back up keys **before** moving them to the YubiKey. `keytocard` is destructive — it removes the local copy.
+
+```bash
+# Export master key (store offline, encrypted USB or similar)
+gpg --export-secret-keys --armor <KEY_ID> > master-key-backup.asc
+
+# Export subkeys separately
+gpg --export-secret-subkeys --armor <KEY_ID> > subkeys-backup.asc
+
+# Export public key (safe to distribute)
+gpg --export --armor <KEY_ID> > public-key.asc
+
+# Create paperkey backup (compact printable format for offline storage)
+gpg --export-secret-keys <KEY_ID> | paperkey --output paperkey-backup.txt
+
+# Generate revocation certificate
+gpg --gen-revoke --armor <KEY_ID> > revocation-cert.asc
+```
+
+Store backups on an encrypted USB drive. Print the paperkey output and store it in a safe. The revocation certificate should be stored separately from the key backups.
+
+### Moving Subkeys to YubiKey
+
+#### Prepare the YubiKey OpenPGP Applet
+
+```bash
+# Check that the OpenPGP applet is detected
+gpg --card-status
+
+# Set OpenPGP PINs (different from FIDO PIN)
+gpg --card-edit
+# admin
+# passwd
+#   1 - Change PIN (default: 123456, set to 6+ digits)
+#   3 - Change Admin PIN (default: 12345678, set to 8+ digits)
+#   q
+# quit
+```
+
+> **Lockout:** 3 wrong PIN attempts locks the card. Use the Admin PIN to unlock. 3 wrong Admin PIN attempts bricks the OpenPGP applet (requires `ykman openpgp reset`).
+
+#### Transfer Subkeys
+
+```bash
+gpg --edit-key <KEY_ID>
+
+# Move signing subkey
+key 1
+keytocard
+# Select: (1) Signature key
+key 1
+
+# Move encryption subkey
+key 2
+keytocard
+# Select: (2) Encryption key
+key 2
+
+# Move authentication subkey
+key 3
+keytocard
+# Select: (3) Authentication key
+
+save
+```
+
+After transfer, `gpg --list-secret-keys` will show `ssb>` for each subkey, indicating the key is on the card (not local).
+
+### Sharing Identity Across Multiple YubiKeys
+
+To use the same GPG identity on a second (or third) YubiKey, you need to re-import the subkeys from backup and transfer them again.
+
+```bash
+# 1. Delete the local key stubs (pointing to first YubiKey)
+gpg --delete-secret-keys <KEY_ID>
+# Confirm deletion
+
+# 2. Re-import subkeys from backup
+gpg --import subkeys-backup.asc
+
+# 3. Prepare the second YubiKey
+#    Insert the second YubiKey
+gpg --card-status
+gpg --card-edit
+# admin -> passwd -> set PIN and Admin PIN -> quit
+
+# 4. Transfer subkeys to second YubiKey (same procedure as above)
+gpg --edit-key <KEY_ID>
+# key 1 -> keytocard -> (1) Signature key -> key 1
+# key 2 -> keytocard -> (2) Encryption key -> key 2
+# key 3 -> keytocard -> (3) Authentication key
+# save
+
+# 5. Repeat steps 1-4 for additional YubiKeys
+```
+
+#### Switching Between YubiKeys
+
+GPG stubs reference a specific card serial number. When you switch to a different YubiKey with the same keys, you need to update the stubs:
+
+```bash
+# Delete stale stubs
+gpg-connect-agent "scd serialno" "learn --force" /bye
+
+# Or if that doesn't work:
+gpg --delete-secret-keys <KEY_ID>
+gpg --card-status
+# This re-creates stubs pointing to the currently inserted card
+```
+
+### Configuring pass
+
+`pass` uses GPG for encryption. After setting up your GPG key on a YubiKey:
+
+```bash
+# Initialize the password store with your GPG key
+pass init <KEY_ID>
+
+# Enable git tracking (optional but recommended)
+pass git init
+pass git remote add origin <url>
+
+# Basic usage
+pass insert email/personal        # add a password
+pass show email/personal           # decrypt and display
+pass generate web/example.com 32   # generate random password
+pass edit email/personal           # edit in $EDITOR
+pass rm old/entry                  # remove an entry
+
+# Sync across machines
+pass git push
+pass git pull
+```
+
+### Recovering on a New Machine
+
+After running `home-manager switch --flake . --impure`, GPG tools and agent are already configured. You just need your keys:
+
+```bash
+# Import your public key
+gpg --import public-key.asc
+
+# Insert YubiKey — this fetches the secret key stubs from the card
+gpg --card-status
+
+# Trust your own key
+gpg --edit-key <KEY_ID>
+# trust -> 5 (ultimate) -> quit
+
+# Verify
+gpg --list-secret-keys
+# Should show:
+#   sec#  rsa4096 [C]        (master key, stub — not on card or local)
+#   ssb>  rsa4096 [S]        (signing subkey, on card)
+#   ssb>  rsa4096 [E]        (encryption subkey, on card)
+#   ssb>  rsa4096 [A]        (authentication subkey, on card)
+
+# Clone your password store
+git clone <pass-repo-url> ~/.password-store
+# or: pass git clone <url>
+
+# Verify pass works
+pass show email/personal
+```
+
+### Complete Key Inventory
+
+| Applet | Key Type | Touch | PIN | Purpose |
+|--------|----------|-------|-----|---------|
+| FIDO2 | ed25519-sk (`ssh:git`) | No | Yes | Git SSH signing and push |
+| FIDO2 | ed25519-sk (`ssh:access`) | Yes | Yes | SSH connections |
+| OpenPGP | RSA 4096 [S] | Optional | Yes | GPG signing |
+| OpenPGP | RSA 4096 [E] | Optional | Yes | Encryption / `pass` |
+| OpenPGP | RSA 4096 [A] | Optional | Yes | GPG authentication |

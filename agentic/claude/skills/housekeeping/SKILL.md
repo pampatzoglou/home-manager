@@ -18,9 +18,9 @@ Multi-pass, stateful sweep of a service repo. Each pass applies one companion sk
 | Skill | Responsibility |
 |---|---|
 | `housekeeping` | Orchestrator — runs companion skills in order, tracks state, iterates to convergence |
-| `tidy` | Mechanical style drift — called as Pass 4 |
-| `prune` | Removal and dead code — called as Pass 5 |
-| `document` | Documentation generation — called as Pass 6 |
+| `tidy` | Mechanical style drift — called as Pass 6 |
+| `prune` | Removal and dead code — called as Pass 7 |
+| `document` | Documentation generation — called as Pass 8 |
 
 Do not inline `tidy`, `prune`, or `document` logic here. Invoke each as its own pass with its own state entries.
 
@@ -55,9 +55,10 @@ Examples:
 - `p3.k8s.api.resources.limits-set`
 - `p3.k8s.api.probes.readiness-exists`
 - `p4.argo.applicationset.go-template`
-- `p5.tidy.helm.api.deployment`
-- `p6.prune.helm.api.values`
-- `p7.docs.readme`
+- `p5.ci.workflow.calls-tasks`
+- `p6.tidy.helm.api.deployment`
+- `p7.prune.helm.api.values`
+- `p8.docs.readme`
 
 **Write state after every single item.** Interrupted runs never reprocess completed work.
 
@@ -406,12 +407,12 @@ Goal: README, architecture docs, and chart-level documentation are present and a
 
 ## Convergence
 
-**Converged** = a full cycle (Passes 1–6) produces zero `pending → completed` transitions.
+**Converged** = a full cycle (Passes 1–8) produces zero `pending → completed` transitions.
 
 Before declaring convergence:
 1. No items are in `pending` state
 2. All `failed` items have been reviewed (either manually fixed and re-run, or explicitly overridden to `skipped` by the user)
-3. Pass 6 (docs) completed — documentation reflects the final state of all the work done in Passes 1–5
+3. Pass 8 (docs) completed — documentation reflects the final state of all the work done in Passes 1–7
 
 Report format:
 ```
@@ -490,7 +491,7 @@ p2.helm.api.values.no-latest:
 - [ ] State written after **each item** individually — no batching
 - [ ] Every `skipped` item has a human-readable reason
 - [ ] Every `failed` item specifies the exact manual action needed
-- [ ] Passes run in order 1 → 6; a pass is complete only when all its items are resolved
+- [ ] Passes run in order 1 → 8; a pass is complete only when all its items are resolved
 - [ ] `tidy`, `prune`, and `document` are invoked as passes, not inlined
 - [ ] `helm template` is run to validate after Pass 2 items that modify templates
 - [ ] Convergence declared only when a full cycle produces zero new completions

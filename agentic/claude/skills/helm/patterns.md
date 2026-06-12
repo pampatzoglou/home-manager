@@ -191,23 +191,68 @@ The `tpl` call allows users to embed Helm expressions (e.g., `{{ include "my-cha
 
 ---
 
-## Config checksum annotation
+## ConfigMap
 
-Force a rolling restart when chart-internal secrets change by adding a checksum annotation to the pod template:
+Non-secret configuration the app reads from a file or env. Guard the whole resource with `config.enabled` so charts without external config render nothing (and the checksum line stays conditional):
+
+```gotmpl
+{{- if .Values.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "my-chart.fullname" . }}
+  labels:
+    {{- include "my-chart.labels" . | nindent 4 }}
+data:
+  {{- toYaml .Values.config.data | nindent 2 }}
+{{- end }}
+```
+
+Values shape:
+
+```yaml
+config:
+  enabled: false
+  data: {}
+#   enabled: true
+#   data:
+#     APP_MODE: "production"
+#     app.conf: |
+#       key = value
+```
+
+Mount it as files (pairs with `readOnlyRootFilesystem`) or load via `envFrom.configMapRef`. Secret values never go here — those belong in `secrets.yaml` / ExternalSecret. A multi-component chart puts each component's ConfigMap under its folder (`frontend/configmap.yaml`) and checksums it in that component's pod template only.
+
+---
+
+## Config & Secret checksum annotations
+
+Force a rolling restart when a mounted ConfigMap or Secret changes by checksumming each into a pod-template annotation. Use a distinct key per source — `checksum/config` for the ConfigMap, `checksum/secret` for the Secret:
 
 ```gotmpl
 spec:
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- if .Values.config.enabled }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
 ```
 
-This complements the reloader annotation:
-- **Checksum** — triggers restart when the chart's own `secrets.yaml` output changes (values change between deploys)
-- **Reloader** (`reloader.stakater.com/auto: "true"`) — triggers restart when an external Secret or ConfigMap is updated in-place (credential rotation, ExternalSecret refresh)
+- **Guard each `include` with the same condition that renders the file.** `include` on a template that doesn't exist errors at render time, so a conditional ConfigMap (`config.enabled`) needs an equally conditional checksum line. `secrets.yaml` is rendered by every chart here, so its checksum is unconditional.
+- **Per workload, checksum only what that workload mounts.** In a multi-component chart the frontend Deployment checksums `frontend/configmap.yaml`; the backend checksums its own. Don't hash every config file into every pod — an unrelated change would needlessly churn pods that don't consume it.
+- **Put the checksums above the `podAnnotations` merge** so a user-supplied annotation can't accidentally clobber them.
+- Distinct keys make `kubectl describe pod` show *which* source changed.
 
-Use both. Checksum goes in the template; reloader goes in `defaults/values.yaml` via `podAnnotations`.
+This complements the reloader annotation:
+- **Checksum** — restart when the chart's own rendered `configmap.yaml`/`secrets.yaml` changes (values change between deploys).
+- **Reloader** (`reloader.stakater.com/auto: "true"`) — restart when an external Secret/ConfigMap is updated in-place (credential rotation, ExternalSecret refresh).
+
+Use both. Checksums go in the template; reloader goes in `defaults/values.yaml` via `podAnnotations`.
 
 ---
 
@@ -484,7 +529,10 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- if .Values.config.enabled }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -587,6 +635,7 @@ Key points:
 - Labels include both chart labels and user `podLabels`
 - Env vars follow the ordering convention: downward API → config → secrets
 - Image uses the `my-chart.image` helper for tag+digest support
+- Set a unique `app.kubernetes.io/component` (see *Component label — required on every workload*). This skeleton uses plain `labels`/`selectorLabels` for brevity; switch to `componentLabels`/`componentSelectorLabels` whenever the chart renders more than one workload
 
 ---
 
@@ -618,6 +667,41 @@ service:
 ```
 
 Use named ports (`http`, `metrics`, `grpc`) — they're referenced by probes, ServiceMonitors, and HTTPRoutes. Only create a Service for workloads that receive traffic (HTTP APIs, gRPC services). Background consumers/producers don't need one.
+
+---
+
+## Component label — required on every workload
+
+Every workload a chart renders — `Deployment`, `StatefulSet`, `CronJob`, and `Job` (including Helm-hook migration Jobs) — must carry a **unique** `app.kubernetes.io/component`. Label even a single-workload chart (e.g. `server`); it becomes mandatory the moment a chart has more than one workload.
+
+Two reasons:
+1. **Selector isolation.** `selectorLabels` (name + instance) is identical for every workload in a chart. Without a distinguishing label, two Deployments — or a Deployment alongside a Job — have overlapping selectors: a controller can adopt another workload's pods, and Services/PDBs/Monitors match the wrong pods. A per-workload component label *in the selector* makes each workload select only its own pods.
+2. **Operability.** `kubectl get pods -l app.kubernetes.io/component=migrate`, per-component dashboards, NetworkPolicy peers, and cost allocation all key off it.
+
+Use the `componentLabels` / `componentSelectorLabels` helpers (defined under *Multi-deployment charts* below) in every workload, passing a name unique within the chart:
+
+```gotmpl
+# deployment.yaml — component: "server"
+metadata:
+  labels:
+    {{- include "my-chart.componentLabels" (dict "root" . "component" "server") | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "my-chart.componentSelectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "my-chart.componentLabels" (dict "root" . "component" "server") | nindent 8 }}
+```
+
+Assign a distinct value per object — e.g. `server`, `worker`, `migrate`, `report-cron`.
+
+Rules:
+- **Unique per workload** within the chart — never reuse a value across two objects.
+- **Deployments / StatefulSets:** put the component label in the selector (`componentSelectorLabels`). Selectors are immutable — set it from day one; adding it to an existing workload forces a delete/recreate.
+- **Jobs / CronJobs:** set it in `metadata.labels` and the pod-template labels, but **not** in a manual selector — Jobs generate their own controller-owned selector and overriding it is unsupported.
+- **Dependent objects must match:** a Service, PDB, ServiceMonitor, or NetworkPolicy targeting one workload must include the same component label in its selector, or it silently matches the wrong (or zero) pods.
 
 ---
 
@@ -1017,7 +1101,10 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:
-            checksum/config: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+            {{- if .Values.config.enabled }}
+            checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+            {{- end }}
+            checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
             {{- with .Values.podAnnotations }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -1068,6 +1155,8 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
 ```
+
+Set a unique `app.kubernetes.io/component` (e.g. `report-cron`) on the CronJob `metadata.labels` and the `jobTemplate` pod labels — not in a selector (Jobs own their selector). See *Component label — required on every workload*.
 
 For migration Jobs that must run before the application starts, see `postgres.md` — it covers the Helm hook template, admin Secret ordering (weight `-10` before Job at `0`), and the migrate values shape.
 
@@ -1436,6 +1525,139 @@ automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
 
 ---
 
+## RBAC
+
+Only create RBAC when the workload actually calls the Kubernetes API (leader election, watching ConfigMaps, reconciling CRs). A workload that never talks to the API server needs neither RBAC nor a mounted token — keep `serviceAccount.automount: false`. Don't ship empty Roles "just in case."
+
+`templates/rbac.yaml` — namespaced `Role` by default, `ClusterRole` when `rbac.clusterScope: true`, always bound to the chart's ServiceAccount:
+
+```gotmpl
+{{- if .Values.rbac.create }}
+{{- $kind := ternary "ClusterRole" "Role" .Values.rbac.clusterScope }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}
+metadata:
+  name: {{ include "my-chart.fullname" . }}
+  labels:
+    {{- include "my-chart.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}Binding
+metadata:
+  name: {{ include "my-chart.fullname" . }}
+  labels:
+    {{- include "my-chart.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $kind }}
+  name: {{ include "my-chart.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "my-chart.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+```
+
+Values shape:
+
+```yaml
+serviceAccount:
+  create: true
+  automount: false        # flip to true when rbac.create is true — the pod needs its token
+
+rbac:
+  create: false
+  clusterScope: false     # true → ClusterRole/ClusterRoleBinding (cluster-wide; use sparingly)
+  rules: []
+#   create: true
+#   rules:
+#     - apiGroups: [""]
+#       resources: ["configmaps"]
+#       verbs: ["get", "list", "watch"]
+#     - apiGroups: ["coordination.k8s.io"]
+#       resources: ["leases"]
+#       verbs: ["get", "create", "update"]
+```
+
+Rules of thumb:
+- Prefer a namespaced `Role`. Only go cluster-scoped for genuinely cluster-wide resources (nodes, namespaces, CRDs, PVs).
+- Least privilege: enumerate explicit `verbs`, never `["*"]`; scope to `resourceNames` where the API allows it.
+- When `rbac.create: true`, set `serviceAccount.automount: true` — without the token the granted permissions are unusable. This is the one case where automount is expected (the ServiceAccount default in `SKILL.md` is `false`).
+
+---
+
+## NetworkPolicy
+
+Segment pod traffic with an explicit policy instead of relying on a cluster-wide default-deny you don't control. The pod selector reuses `selectorLabels`; `policyTypes` is derived from which rule sets are present, so you never declare a direction with no rules by accident.
+
+`templates/networkpolicy.yaml`:
+
+```gotmpl
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "my-chart.fullname" . }}
+  labels:
+    {{- include "my-chart.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "my-chart.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    {{- if .Values.networkPolicy.ingress }}
+    - Ingress
+    {{- end }}
+    {{- if .Values.networkPolicy.egress }}
+    - Egress
+    {{- end }}
+  {{- with .Values.networkPolicy.ingress }}
+  ingress:
+    {{- tpl (toYaml .) $ | nindent 4 }}
+  {{- end }}
+  {{- with .Values.networkPolicy.egress }}
+  egress:
+    {{- tpl (toYaml .) $ | nindent 4 }}
+  {{- end }}
+{{- end }}
+```
+
+`tpl` wraps the rules so peer selectors can reference chart helpers (e.g. another component's `selectorLabels`).
+
+Values shape:
+
+```yaml
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
+#   enabled: true
+#   ingress:
+#     - from:
+#         - podSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: ingress-nginx
+#       ports:
+#         - port: http            # named container port resolves to targetPort
+#   egress:
+#     # Always allow DNS first, or every other egress rule silently fails resolution
+#     - to:
+#         - namespaceSelector: {}
+#       ports:
+#         - port: 53
+#           protocol: UDP
+#         - port: 53
+#           protocol: TCP
+```
+
+Notes:
+- **Never block the local loop.** Keep `networkPolicy.enabled: false` in the **base `values.yaml`**, with the real `ingress`/`egress` rules commented as the starting shape. The chart must deploy on a bare `kind` cluster (often with no policy-enforcing CNI) and on `docker-compose` with full connectivity. Turn the policy *on* in `defaults/values.yaml` or the per-env overlay for real clusters — never in the base file. Same goes for any other restrictive or cluster-coupled feature (strict egress, `rbac.clusterScope`, ExternalSecret-only credentials): off in base, on in overlays.
+- `enabled: true` with empty `ingress`/`egress` is a **no-op** (no `policyTypes`) — you opt into each direction by adding rules. For a strict "deny all ingress," add a single empty-rule list element or an explicit `policyTypes`.
+- **Always include a DNS egress rule** once you restrict egress; otherwise the pod can't resolve any name and every other allow-rule looks broken.
+- Prefer `namespaceSelector`/`podSelector` peers over raw `ipBlock` CIDRs — labels survive IP churn.
+
 ## Patterns checklist
 
 In addition to the foundations checklist in `SKILL.md`:
@@ -1445,7 +1667,7 @@ In addition to the foundations checklist in `SKILL.md`:
 - [ ] Secret suffixes match values block names (`-db`, `-kafka`, `-node`)
 - [ ] See `postgres.md` checklist for database credential items
 - [ ] See `kafka.md` checklist for Kafka SASL credential items
-- [ ] Config checksum annotation on pod template
+- [ ] `checksum/config` (ConfigMap) and `checksum/secret` (Secret) annotations on every workload that mounts them — each `include` guarded by the same condition that renders the file, placed above the `podAnnotations` merge
 - [ ] Reloader annotation in `defaults/values.yaml` via `podAnnotations`
 - [ ] Downward API metadata env vars present (NAMESPACE, POD_NAME, POD_IP, HOST_IP, NODE_NAME, CPU/MEM request/limit)
 - [ ] Env var ordering: downward API → config values → secret references
@@ -1459,16 +1681,20 @@ In addition to the foundations checklist in `SKILL.md`:
 - [ ] Monitoring templates (PodMonitor/ServiceMonitor/PrometheusRule) behind `metrics.enabled` gate
 - [ ] CRD templates use `required` and `fail` for input validation
 - [ ] Service uses named ports (`http`, `metrics`, `grpc`)
+- [ ] Every workload (Deployment/StatefulSet/CronJob/Job) carries a unique `app.kubernetes.io/component`; Deployments/StatefulSets include it in the selector, Jobs/CronJobs only in labels
 - [ ] No duplicate template blocks (e.g., tolerations rendered twice)
 - [ ] Image tag pinned (no `:latest` in committed manifests)
 - [ ] No literal credentials in env overlays — ExternalSecret references only
 - [ ] `automountServiceAccountToken: false` unless the workload calls the API server
+- [ ] RBAC created only when the workload calls the API server; namespaced `Role` preferred, explicit `verbs` (never `["*"]`); `automount: true` paired with `rbac.create: true`
+- [ ] NetworkPolicy `podSelector` uses `selectorLabels`; `policyTypes` derived from present rule sets; DNS egress allowed whenever egress is restricted
+- [ ] NetworkPolicy (and other restrictive features) default to `enabled: false` in base `values.yaml` with rules commented — enabled only in `defaults/`/overlays, so local kind/compose isn't blocked
 
 **Multi-deployment charts:**
 
 - [ ] Templates organized in component folders (`frontend/`, `backend/`, `worker/`, `shared/`)
 - [ ] Component-scoped helpers defined: `componentName`, `componentLabels`, `componentSelectorLabels`
-- [ ] `app.kubernetes.io/component` label present on all multi-component resources
+- [ ] A unique `app.kubernetes.io/component` on every workload and its dependent resources (Service/PDB/Monitor/NetworkPolicy selectors match it)
 - [ ] Component labels defined: `role`, `component-type`, `tier` (both Deployment and Pod level)
 - [ ] Each component has `enabled: false` toggle for per-environment control
 - [ ] Component values nested under component name (`.Values.frontend.*`, `.Values.backend.*`)

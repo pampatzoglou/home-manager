@@ -53,7 +53,7 @@
     # Formatters
     shfmt # Shell/Bash formatter
     black # Python formatter
-    nixfmt-classic # Nix formatter
+    nixfmt # Nix formatter
 
     # Linters / diagnostics
     tflint

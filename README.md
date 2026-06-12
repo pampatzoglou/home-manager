@@ -219,21 +219,23 @@ See [docs/CLAUDE.md](./docs/CLAUDE.md) for directory structure, skill management
 
 - **argo-applicationset** - ArgoCD ApplicationSet authoring
 - **bootstrap** - Scaffold a new project repository
-- **code-review** - Security, quality, performance checklists
+- **ci** - Interactive CI workflow generation (orchestrates github-actions + taskfile + devbox)
 - **debugging** - Systematic 6-step debugging methodology
 - **devbox** - Reproducible dev environments via Nix
+- **docker-compose** - Local-dev compose file with Kubernetes-parity volumes & file secrets
+- **dockerfile** - 4-stage Dockerfile generation (base → build → develop/production)
 - **document** - Generate and update documentation suites
-- **cicd** - Interactive CI/CD workflow generation
-- **dockerfile** - 3-stage Dockerfile generation
+- **git** - Conventional commit messages and PR overview descriptions
 - **github-actions** - GitHub Actions CI via Taskfile + devbox
 - **helm** - Helm chart authoring and values layering
+- **housekeeping** - Stateful multi-pass repo sweep across all companion skills
 - **kubernetes** - Kubernetes manifests, Helm, ArgoCD/GitOps
+- **platform-review** - Review entry point; dispatches to the matching stack skills + built-in /code-review + /security-review, checks cross-stack seams
+- **prune** - Find dead/unused code and AI context bloat (redundant docs, verbose comments, duplicate files)
 - **skaffold** - Skaffold + kind local development loop
 - **taskfile** - Standard Taskfile conventions
 - **terraform** - Terraform/HCL review and planning
 - **tidy** - Hunt for mechanical inconsistencies (missing separators, empty vars, whitespace drift)
-- **prune** - Find dead/unused code and AI context bloat (redundant docs, verbose comments, duplicate files)
-- **git** - Conventional commit messages and PR overview descriptions
 
 For detailed documentation, see [agentic/README.md](./agentic/README.md).
 

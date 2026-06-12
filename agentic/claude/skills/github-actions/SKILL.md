@@ -22,6 +22,8 @@ Every job step that does project work:
 
 No `setup-helm`, `setup-terraform`, `setup-node` — devbox brings all pinned tools. See the `devbox` skill for package setup and the `taskfile` skill for task conventions.
 
+This file covers the generic foundations. For Kubernetes/ArgoCD delivery, two reference files go deeper: `kubernetes-ci.md` (PR-time lint/template/audit) and `cross-repo-promotion.md` (merge-time image-tag promotion into the GitOps repo).
+
 ## Standard workflow structure
 
 ```yaml
@@ -57,11 +59,12 @@ jobs:
 |---|---|
 | Minimal permissions | `permissions: contents: read` at workflow level; add only what individual jobs actually need |
 | OIDC over long-lived tokens | `id-token: write` + cloud OIDC action; never store static credentials in secrets when OIDC is available |
-| Pin action versions | Use `@v4` tags (or SHA pins for critical actions) — never `@latest` |
+| Pin actions to a commit SHA | Pin **every** `uses:` to a full-length commit SHA — never a tag or branch. Tags are mutable and re-pointable (the `tj-actions/changed-files` 2025 supply-chain attack). Keep the version in a trailing comment; let Dependabot/Renovate bump it. See **Pinning actions to digests** below. |
 | No credential persistence | `persist-credentials: false` on `actions/checkout` when downstream steps don't need git push |
 | No script injection | Never interpolate untrusted inputs (PR titles, branch names) into `run:` commands |
 | Avoid `pull_request_target` | Has secret access but can checkout fork code — dangerous combination |
 | Environment protection | Use GitHub Environments with required reviewers for production deploys |
+| Cross-repo writes | Mint a scoped GitHub App token (`actions/create-github-app-token`) for git/PR ops against another repo — never store a long-lived PAT |
 
 OIDC example (AWS):
 ```yaml
@@ -75,6 +78,45 @@ steps:
       role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
       aws-region: us-east-1
 ```
+
+## Pinning actions to digests
+
+Tags (`@v4`, `@v4.2.2`) and branches (`@main`) are **mutable** — whoever controls the action's repo can move them to point at new code. A leaked maintainer token or a poisoned tag re-point then runs arbitrary code in your pipeline with your secrets and `GITHUB_TOKEN`. This is not hypothetical: the March 2025 `tj-actions/changed-files` compromise retroactively altered tags and leaked secrets from thousands of workflows. A full-length commit SHA is immutable — it pins the exact tree you reviewed.
+
+```yaml
+# ✅ pinned to a digest; version in a trailing comment for readability + Dependabot
+- uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+- uses: jetify-com/devbox-install-action@<full-40-char-commit-sha> # v0.13.0
+
+# ❌ mutable — never in real workflows
+- uses: actions/checkout@v4
+- uses: actions/checkout@main
+```
+
+Rules:
+- Pin **every** `uses:` to a 40-character commit SHA — first-party `actions/*` included. "Trusted org" is not the same as "immutable ref".
+- Keep the human-readable version in a trailing `# vX.Y.Z` comment so the pin stays reviewable and bumpable.
+- Pin Docker-based actions by digest too: `uses: docker://image@sha256:...`.
+- **Automate the bumps** so SHA-pinning doesn't mean stale actions — Dependabot or Renovate updates both the SHA and the comment.
+
+Resolve a tag to its SHA, or convert a whole repo in bulk:
+```sh
+gh api repos/actions/checkout/commits/v4.2.2 --jq .sha   # one action
+pinact run          # or: ratchet pin — rewrites every tag in .github/workflows to a SHA
+```
+
+Dependabot keeps them current:
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+```
+
+> The `@vX` tags shown elsewhere in this skill and its companion files (`kubernetes-ci.md`, `cross-repo-promotion.md`) are written that way for readability — real workflows must SHA-pin as above.
 
 ## Matrix strategies
 
@@ -182,137 +224,14 @@ concurrency:
 | Fork PRs skip steps | Expected — forks can't access base secrets; guard with `if: secrets.X != ''` |
 | Job slow on first run | Cold Nix store — subsequent runs hit the cache |
 
-## Kubernetes CI
+## Kubernetes CI/CD — reference files
 
-For repos that deploy Helm charts, the CI workflow runs lint, template, and audit as a matrix over environments.
+For Helm/ArgoCD repos the pipeline splits across two companion files; read the one that matches the task:
 
-### Standard matrix
-
-```yaml
-strategy:
-  fail-fast: false    # see all environment failures at once
-  matrix:
-    env: [dev, prod]
-```
-
-### .argo/ diff check
-
-ArgoCD reads from `.argo/<env>/` — if the rendered output isn't committed, what's running in the cluster differs from what's in git. Add after `task template:<env>`:
-
-```yaml
-- name: Verify rendered output is committed
-  run: |
-    if ! git diff --quiet .argo/${{ matrix.env }}/; then
-      echo "::error::Rendered output in .argo/${{ matrix.env }}/ differs from committed version."
-      echo "Run 'task template:${{ matrix.env }}' locally and commit the result."
-      git diff --stat .argo/${{ matrix.env }}/
-      exit 1
-    fi
-```
-
-### Third-axis matrix (when applicable)
-
-If the repo uses a third-axis overlay (chain, region, tenant), add it to the matrix:
-
-```yaml
-matrix:
-  env: [dev, prod]
-  chain: [variant1, variant2]
-
-steps:
-  - run: devbox run task template:${{ matrix.env }} CHAIN=${{ matrix.chain }}
-```
-
-### Canonical Kubernetes ci.yaml
-
-```yaml
-name: CI
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  lint-charts:
-    name: lint (${{ matrix.env }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        env: [dev, prod]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
-        with:
-          enable-cache: true
-      - run: devbox run task lint:${{ matrix.env }}
-
-  template-charts:
-    name: template (${{ matrix.env }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        env: [dev, prod]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
-        with:
-          enable-cache: true
-      - run: devbox run task template:${{ matrix.env }}
-      - name: Verify rendered output is committed
-        run: |
-          if ! git diff --quiet .argo/${{ matrix.env }}/; then
-            echo "::error::Rendered output in .argo/${{ matrix.env }}/ differs."
-            echo "Run 'task template:${{ matrix.env }}' and commit."
-            git diff --stat .argo/${{ matrix.env }}/
-            exit 1
-          fi
-
-  audit-charts:
-    name: audit (${{ matrix.env }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        env: [dev, prod]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
-        with:
-          enable-cache: true
-      - run: devbox run task audit:${{ matrix.env }}
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
-        with:
-          enable-cache: true
-      - run: devbox run task test
-```
-
-### Branch protection
-
-Require all matrix job names as separate required checks: `lint (dev)`, `lint (prod)`, `template (dev)`, `template (prod)`, `audit (dev)`, `audit (prod)`, `test`.
-
-### Common Kubernetes CI failures
-
-| Failure | Cause |
-|---|---|
-| `lint failed` on one chart | Missing required value in `defaults/values.yaml` |
-| `.argo/ diff` fails | Chart changed without running `task template:<env>` before commit |
-| `audit` fails with kubescape findings | Fix the manifest or add to `.kubescape/exceptions.json` with a `reason` |
+| File | Covers | When |
+|---|---|---|
+| `kubernetes-ci.md` | lint/template/audit matrix over environments, the `.argo/` committed-output diff, canonical `ci.yaml`, branch protection | PR-time checks |
+| `cross-repo-promotion.md` | promoting the built image tag into the separate GitOps repo via a scoped GitHub App token and an auto-merged PR | merge-time deploy |
 
 ## Companion skills — offer after completing
 

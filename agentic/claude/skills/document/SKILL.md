@@ -272,6 +272,6 @@ When docs are written or updated, check the repo and offer whichever of these ar
 |-------|-----------|
 | `devbox` | No `devbox.json` in the repo root — the quick start in README will reference it |
 | `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` — the quick start should show `task --list` |
-| `cicd` | No `.github/workflows/` — CI pipeline worth documenting doesn't exist yet |
+| `ci` | No `.github/workflows/` — CI pipeline worth documenting doesn't exist yet |
 
 Ask as a single grouped question — not mid-task, not separately for each.

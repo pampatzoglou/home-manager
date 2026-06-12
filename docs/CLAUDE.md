@@ -19,15 +19,18 @@ home-manager/
 │       └── skills/                   # Auto-discovered skill directories
 │           ├── argo-applicationset/
 │           ├── bootstrap/
-│           ├── cicd/
-│           ├── code-review/
+│           ├── ci/
 │           ├── debugging/
 │           ├── devbox/
-│           ├── document/
+│           ├── docker-compose/
 │           ├── dockerfile/
+│           ├── document/
+│           ├── git/
 │           ├── github-actions/
 │           ├── helm/
+│           ├── housekeeping/
 │           ├── kubernetes/
+│           ├── platform-review/
 │           ├── prune/
 │           ├── skaffold/
 │           ├── taskfile/
@@ -89,21 +92,23 @@ Each skill is a directory under `agentic/claude/skills/` containing a `SKILL.md`
 |-------|---------|
 | `argo-applicationset` | ArgoCD ApplicationSet authoring |
 | `bootstrap` | Scaffold a new project repository |
-| `cicd` | Interactive CI/CD workflow generation |
-| `code-review` | Security, quality, performance checklists |
+| `ci` | Interactive CI workflow generation (orchestrates github-actions + taskfile + devbox) |
 | `debugging` | Systematic 6-step debugging methodology |
 | `devbox` | Reproducible dev environments via Nix |
+| `docker-compose` | Local-dev compose file with Kubernetes-parity volumes & file secrets |
+| `dockerfile` | 4-stage Dockerfile generation (base → build → develop/production) |
 | `document` | Generate and update documentation suites |
-| `dockerfile` | 3-stage Dockerfile generation |
+| `git` | Conventional commit messages and PR overview descriptions |
 | `github-actions` | GitHub Actions CI via Taskfile + devbox |
 | `helm` | Helm chart authoring and values layering |
+| `housekeeping` | Stateful multi-pass repo sweep across all companion skills |
 | `kubernetes` | Kubernetes manifests, Helm, ArgoCD/GitOps |
+| `platform-review` | Review entry point; dispatches to the matching stack skills + built-in /code-review + /security-review, checks cross-stack seams |
 | `prune` | Find dead/unused code and AI context bloat |
 | `skaffold` | Skaffold + kind local development loop |
 | `taskfile` | Standard Taskfile conventions |
 | `terraform` | Terraform/HCL review and planning |
 | `tidy` | Hunt for mechanical inconsistencies |
-| `git` | Conventional commit messages and PR overview descriptions |
 
 ### settings.json.template - Permission Rules
 
@@ -424,7 +429,7 @@ cp agentic/claude/skills/_template.md agentic/claude/skills/new-skill.md
 You can explicitly reference skills in conversations:
 
 ```
-"Please review this code using the code-review skill"
+"Please review this code using the platform-review skill"
 "Debug this issue following the debugging methodology"
 "Set up this infrastructure following the kubernetes skill"
 ```
@@ -432,7 +437,7 @@ You can explicitly reference skills in conversations:
 ### Contextual Usage
 
 Claude may automatically apply relevant skills based on the task:
-- Code review → `code-review`
+- Code review → `platform-review`
 - Infrastructure work → `terraform` or `kubernetes`
 - Troubleshooting → `debugging`
 

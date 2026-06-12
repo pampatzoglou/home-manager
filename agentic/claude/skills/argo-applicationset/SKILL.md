@@ -391,4 +391,4 @@ Common candidates: PVC annotations (storage controllers), webhook caBundle (cert
 |-------|-----------|
 | `helm` | Chart in `deploy/charts/<app>/` is missing or incomplete |
 | `kubernetes` | Resource standards (security context, probes, limits) not yet applied to charts |
-| `cicd` | No CI workflow updating image tags in values files and pushing to the deploy branch |
+| `ci` | No CI workflow updating image tags in values files and pushing to the deploy branch |
