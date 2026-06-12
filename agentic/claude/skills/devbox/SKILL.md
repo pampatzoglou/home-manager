@@ -1,6 +1,6 @@
 ---
 name: devbox
-description: Reproducible developer environments via pinned Nix packages. Covers .envrc setup with direnv, devbox.json structure, pinning strategy, and CI integration via devbox-install-action.
+description: Reproducible developer environments via pinned Nix packages. Covers .envrc setup with direnv, devbox.json structure, pinning strategy, CI integration via devbox-install-action, and an init_hook that performs SSO login (when available) and pulls required dev secrets from Vault on shell entry.
 user-invocable: true
 ---
 
@@ -37,7 +37,7 @@ Commit it. Each developer runs `direnv allow` once; from then on `cd`-ing into t
 }
 ```
 
-`shell.scripts` are shortcuts runnable via `devbox run <name>` — useful for multi-step setup commands that don't belong in the Taskfile (e.g., cluster lifecycle management).
+`shell.scripts` are shortcuts runnable via `devbox run <name>`. Prefer delegating to Taskfile tasks (`task <name>`) so logic lives in one place — see [Scripts: delegate to Taskfile tasks](#scripts-delegate-to-taskfile-tasks). Reserve inline bodies for environment bootstrap that can't be a task (e.g. cluster lifecycle management).
 
 **Commit both `devbox.json` and `devbox.lock`.** The lockfile captures the exact resolved Nix store path; without it the same `devbox.json` can resolve to different package versions on different days.
 
@@ -63,6 +63,7 @@ Use major-or-minor constraints, not exact patch versions:
 | Rust | `rustup` |
 | Containers | `hadolint`, `trivy` |
 | Cloud CLIs | `awscli2`, `google-cloud-sdk` |
+| Secrets / auth | `vault` (+ a cloud SSO CLI for the init_hook — see Shell init) |
 
 Don't add packages the project doesn't use — each is a download and PATH entry. A bloated shell is slow to enter and obscures actual dependencies.
 
@@ -76,6 +77,31 @@ devbox add <package>          # add a package and update devbox.lock
 devbox info                   # show installed packages and versions
 devbox doctor                 # diagnose environment issues (missing Nix, broken PATH, direnv not hooked)
 ```
+
+## Scripts: delegate to Taskfile tasks
+
+Like CI, `devbox run` scripts should call Taskfile tasks, not embed their own logic — the Taskfile stays the single source of truth, so a script and its CI equivalent run the exact same thing (see the `taskfile` skill). Inside a devbox script the environment is already active, so call `task` directly (no `devbox run` prefix needed):
+
+```json
+"shell": {
+  "scripts": {
+    "fmt":     ["task fmt"],
+    "lint":    ["task lint"],
+    "test":    ["task test"],
+    "build":   ["task build"],
+    "audit":   ["task audit"],
+    "secrets": ["task secrets"]
+  }
+}
+```
+
+`devbox run lint` now does exactly what `task lint` does locally and what the CI job runs — one definition, three call sites.
+
+**The exceptions are things a task can't do**, because both `devbox run <script>` and `task` execute in a subprocess:
+- **Bootstrap that must run before the task toolchain or cluster exists** — cluster lifecycle (below) is the canonical example.
+- **Anything that must mutate your interactive shell** (export secrets, change directory state). A subprocess can't set env vars in the parent shell — that's why secret export lives in the `init_hook`, not a script.
+
+Everything that operates on the project's code delegates to `task`.
 
 ## CI integration
 
@@ -137,6 +163,57 @@ Usage:
 devbox run cluster:up     # create the kind cluster (once per machine)
 devbox run cluster:reset  # tear down and recreate
 ```
+
+## Shell init: pre-commit, SSO, secrets
+
+The `init_hook` runs on every shell entry and every `direnv` reload, so set up hooks, authenticate, and export secrets right here. Two things keep it sane: **guard the logins so they don't re-prompt** when a session is still valid, and let secret fetches **fail-open** so an unreachable Vault doesn't break the shell.
+
+```json
+"shell": {
+  "init_hook": [
+    "pre-commit install",
+    "export AWS_PROFILE=dev-sso-profile",
+    "aws sts get-caller-identity --profile $AWS_PROFILE > /dev/null 2>&1 || aws sso login --profile $AWS_PROFILE",
+    "vault token lookup > /dev/null 2>&1 || vault login -method=oidc role=developer > /dev/null",
+    "creds=$(vault kv get -format=json secret/myapp/dev)",
+    "export DATABASE_USERNAME=$(printf '%s' \"$creds\" | jq -r '.data.data.username')",
+    "export DATABASE_PASSWORD=$(printf '%s' \"$creds\" | jq -r '.data.data.password')",
+    "unset creds"
+  ],
+  "scripts": {
+    "test": ["task test"]
+  }
+}
+```
+
+(Project scripts like `test` delegate to Taskfile tasks — see [Scripts: delegate to Taskfile tasks](#scripts-delegate-to-taskfile-tasks). Secret export is *not* one of them: it must run in the `init_hook` because a script runs in a subprocess and can't set env vars in your shell.)
+
+- **The `|| login` guard is what makes it idempotent.** `aws sts get-caller-identity` exits 0 silently while the SSO session is valid, so the browser only opens when it has actually expired. `vault token lookup || vault login` does the same for Vault — and with `-method=oidc` that Vault login rides the SSO identity you just established.
+- **Fetch each Vault path once, then `jq` out the keys.** `creds=$(vault kv get -format=json …)` followed by `jq -r '.data.data.<key>'` per variable is one round-trip for the whole secret, instead of a `vault` call per env var. init_hook entries share one shell, so `creds` set on one line is visible to the lines below it — `unset` it afterwards so the raw payload doesn't linger. (`.data.data` is the KV v2 envelope; KV v1 is just `.data`.)
+- **Secrets stay in the shell env only** — nothing is written to disk. This export *must* live in the `init_hook`: a `devbox run` script or `task` runs in a subprocess and can't set vars in your interactive shell. The tradeoff is a Vault round-trip on every entry; to refresh after rotating a secret, run `direnv reload` (re-runs the hook), and keep the fetch list to only what local dev actually needs.
+- **Don't let Vault outages block the shell.** Append `|| true` to the export lines (or guard the whole block) if you want shell entry to succeed even when Vault is down — the dependent task fails later with a clear error instead.
+- **`pre-commit install`** wires the repo's git hooks on first entry; it's a no-op when already installed.
+
+Put the static config (`VAULT_ADDR`, region, default profile) in `shell.env` so the hook stays short:
+
+```json
+"shell": {
+  "env": {
+    "VAULT_ADDR": "https://vault.example.com",
+    "AWS_REGION": "eu-west-1"
+  }
+}
+```
+
+### Packages
+
+Add what the hook calls to `packages`: `vault`, `pre-commit`, and the cloud SSO CLI (`awscli2`, `google-cloud-sdk`, or `azure-cli`).
+
+### Keep it secure
+
+- Local dev secrets should come from the **same Vault paths the workload reads in-cluster** via ExternalSecret — see the `helm` skill's credential blocks — so dev and prod resolve the same keys.
+- Prefer Vault **dynamic** secrets (DB creds, cloud STS) over static KV; a leaked shell env then expires on its own.
+- Never `echo` a secret value, and never write one to a committed file. When you pull the whole secret as JSON, hold it in a shell var only as long as needed and `unset` it after extracting (as above); `jq -r` emits raw values so nothing gets quoted into the env.
 
 ## When devbox isn't right
 

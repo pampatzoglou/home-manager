@@ -1,38 +1,41 @@
 ---
 name: dockerfile
-description: Generate a 3-stage Dockerfile (base → develop → production) and a matching .dockerignore. Base installs OS deps, develop adds code for docker-compose/skaffold inner loop, production uses distroless/slim with explicit non-root user, --chown on all COPYs, and declared VOLUME entries. All stages are architecture-agnostic.
+description: Generate a 4-stage Dockerfile (base → build → develop/production) and a matching .dockerignore. base installs OS deps; build installs dependencies and compiles, ordered for layer caching; develop (FROM build) adds hot-reload tooling for the docker-compose/skaffold inner loop; production uses distroless/slim with an explicit non-root user, --chown on all COPYs, declared VOLUME entries, and a digest-locked base image. Dev-side stages are architecture-agnostic.
 user-invocable: true
 ---
 
 # Generate Dockerfile
 
-Generate a 3-stage Dockerfile and matching `.dockerignore` by analyzing the project's language, framework, dependencies, and entry point.
+Generate a 4-stage Dockerfile and matching `.dockerignore` by analyzing the project's language, framework, dependencies, and entry point.
 
-## The 3-stage model
+## The 4-stage model
 
 ```
-base ──► develop ──► production
-         (also used    (distroless/slim,
-         by docker-     explicit app user,
-         compose &      --chown on all COPYs,
-         skaffold)      VOLUME for writable paths)
+                       ┌──► develop      (dev tooling + hot-reload CMD;
+base ──► build ────────┤                  used by docker-compose & skaffold)
+  │   (deps + compile,  └──► production   (distroless/slim, non-root, --chown,
+  │    cache-ordered)                      VOLUME, artifacts COPY --from=build)
+  └─ OS deps, CA certs, WORKDIR
 ```
 
 | Stage | Purpose | Who uses it |
 |---|---|---|
-| `base` | OS packages, CA certs — no application code, no user | shared foundation for develop and production |
-| `develop` | Full dev environment: all deps (including dev), source code, build output, hot-reload CMD | docker-compose, skaffold local dev |
-| `production` | Slim/distroless + explicit non-root user + artifacts with `--chown` + VOLUME declarations | CI image push, cluster deployments |
+| `base` | OS packages, CA certs, `WORKDIR` — no app code, no user | shared foundation for every downstream stage |
+| `build` | Install dependencies and compile/transpile, ordered for layer caching (manifests → deps → source → build) | produces the artifacts both `develop` and `production` consume |
+| `develop` | `FROM build` + dev tooling (hot-reload daemon, debugger) and the dev `CMD` | docker-compose, skaffold local dev |
+| `production` | Slim/distroless + explicit non-root user + artifacts `COPY --from=build` with `--chown` + VOLUME | CI image push, cluster deployments |
+
+`build` is the cache-optimisation layer: because dependency install happens before the source `COPY`, editing code re-runs only the compile step, not the (slow) dependency resolution.
 
 ## Non-negotiable rules
 
 1. **Verify before adding.** Read the actual source files and manifests before writing any instruction. Never assume a package is needed. Ask if uncertain.
-2. **Architecture-agnostic always.** Use multi-arch official images. Never hardcode `amd64`, `arm64`, or `x86_64`. Detect arch dynamically for any binary download.
+2. **Architecture-agnostic through `develop`.** `base`, `build`, and `develop` must build natively on any builder — an arm64 laptop and amd64 CI from the same Dockerfile. Use multi-arch official images, never hardcode `amd64`/`arm64`/`x86_64`, and detect arch dynamically (`TARGETARCH`, `uname -m`) for any binary download. Production keeps this property too, but is additionally locked — see rule 6.
 3. **No HEALTHCHECK.** Health endpoints are application-specific and cannot be verified from analysis. Users add their own.
 4. **Explicit non-root user in production.** Always create an `app` user in the production stage. Use `--chown=app:app` on every `COPY`. Switch with `USER app` before `CMD`.
 5. **Explicit COPY everywhere.** Never `COPY . .` in any stage — copy only what each stage needs.
-6. **Pin base image versions.** Never `:latest`. Derive the version from project files.
-7. **Declare writable paths.** Any directory the app writes to at runtime (`/tmp`, `/var/cache`, etc.) must be declared with `VOLUME`.
+6. **Pin base images; lock production to a digest.** Never `:latest` — derive the version from project files. The `production` runtime base should be pinned by digest (`FROM …@sha256:…`), preferably the **multi-arch manifest-list digest** so it stays arch-agnostic (rule 2) while being immutable and reproducible. Dev-side stages (`base`/`build`/`develop`) can pin by tag for convenience; production is the one that gets pushed and deployed, so it gets the digest lock. Tags drift; digests don't.
+7. **Production is read-only; writable paths are `VOLUME`s.** The production image is built to run with a read-only root filesystem. Every directory the app writes to at runtime (`/tmp`, caches, work dirs) must be declared with `VOLUME` — that list is the contract the runtime mounts writable, and everything else stays immutable. **Enforced in production** (k8s `readOnlyRootFilesystem: true`); **recommended in dev** (compose `read_only: true`) so a missing path surfaces on a laptop, not in the cluster. See *Read-only root filesystem* below.
 
 ---
 
@@ -120,29 +123,45 @@ WORKDIR /app
 - Set `WORKDIR /app` here so it's inherited.
 - Do **not** create the app user here — each downstream stage has different security requirements.
 
-### Stage 2 — `develop`
+### Stage 2 — `build`
+
+```dockerfile
+# ── build ─────────────────────────────────────────────────────────────────────
+# Install dependencies and compile. Ordered for layer caching: manifests → deps →
+# source → build, so a source-only change doesn't reinstall dependencies.
+FROM base AS build
+
+# Build-time tools not needed at runtime (compilers, headers, codegen).
+RUN <install-build-tools>
+
+# 1. Dependency manifests FIRST — this layer is cached until the manifests change.
+COPY <manifest-files> ./
+RUN <install-all-deps>      # include dev/build deps; production starts clean anyway
+
+# 2. Source SECOND — editing code doesn't bust the dependency layer above.
+COPY <src-dir> ./
+
+# 3. Build the artifact to a well-known path.
+RUN <build-command>         # e.g. go build -o /app/server .  |  npm run build  |  cargo build --release
+```
+
+**Build stage rules:**
+- **Manifests before source.** Copy dependency manifests and install deps *before* the source `COPY`. This is the whole point of the stage — a code edit then re-runs only the build layer, not the slow dependency install.
+- Install everything the compile needs here; build tools never reach the final image because `production` starts from a clean runtime base.
+- Emit a predictable artifact path (`/app/server`, `/app/dist`, a wheel) that both downstream stages consume.
+- With BuildKit, add `RUN --mount=type=cache,target=<pkg-cache>` for the package-manager/compiler cache (Go build cache, `~/.npm`, pip cache) to speed repeat builds further.
+
+### Stage 3 — `develop`
 
 ```dockerfile
 # ── develop ───────────────────────────────────────────────────────────────────
-# Full development environment: all dependencies, source code, build output.
+# Built on top of build, so deps, source, and artifacts are already present and
+# cached. Adds hot-reload tooling and the dev entry point.
 # Used by docker-compose (bind mount for hot reload) and skaffold (sideloaded to kind).
-FROM base AS develop
+FROM build AS develop
 
-# Install dev-time tools (hot reload daemon, test runner, debugger, compiler).
+# Dev-only tooling: hot-reload daemon, test runner, debugger.
 RUN <install-dev-tools>
-
-# Copy dependency manifests first for layer caching.
-COPY <manifest-files> ./
-
-# Install all dependencies (including dev/test deps).
-RUN <install-all-deps>
-
-# Copy source code. Be explicit — never COPY . .
-COPY <src-dir> ./
-COPY <config-files-needed-at-dev-time> ./
-
-# For compiled languages: build the binary here so production can COPY --from=develop.
-RUN <build-command>    # e.g., go build -o /app/server .  |  cargo build --release
 
 # Dev entry point: hot-reload or direct run.
 # docker-compose overrides this with a volume mount; skaffold uses it directly.
@@ -150,9 +169,8 @@ CMD ["<dev-entry-point>"]    # e.g., air, nodemon, uvicorn --reload, go run .
 ```
 
 **Develop stage rules:**
-- Install dev tools that are NOT needed in production.
-- Copy dependency manifests before source code to maximise layer caching.
-- For compiled languages, perform the build here so production can simply `COPY --from=develop /app/binary`.
+- `FROM build` — reuses the cached dependency and compile layers; no second install.
+- Add only tools that must NOT ship in production (hot reload, debuggers, test runners).
 - The `CMD` is the dev entry point — docker-compose may override it; skaffold sideloads this image and expects it to start the service.
 
 **docker-compose target:**
@@ -178,12 +196,13 @@ build:
         target: develop
 ```
 
-### Stage 3 — `production`
+### Stage 4 — `production`
 
 ```dockerfile
 # ── production ────────────────────────────────────────────────────────────────
 # Minimal runtime: explicit non-root user, --chown on every COPY, declared VOLUMEs.
-FROM <runtime-image>:<version> AS production
+# Lock to a digest (preferably the multi-arch manifest list) — immutable + arch-agnostic.
+FROM <runtime-image>:<version>@sha256:<digest> AS production
 
 # Create a dedicated non-root user and group.
 # Alpine syntax:
@@ -193,16 +212,16 @@ RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app
 
-# Copy artifacts from the develop stage with explicit ownership.
+# Copy artifacts from the build stage with explicit ownership.
 # --chown ensures files are owned by app:app from the moment they enter the layer,
 # not by root with a later USER switch — this is the minimal-attack-surface pattern.
 #
 # For compiled languages (single binary):
-COPY --from=develop --chown=app:app /app/<binary> /app/<binary>
+COPY --from=build --chown=app:app /app/<binary> /app/<binary>
 #
-# For interpreted languages (copy selectively — never the full develop stage):
-# COPY --from=develop --chown=app:app /app/<prod-deps-dir> /app/<prod-deps-dir>
-# COPY --from=develop --chown=app:app /app/<src-dir> /app/<src-dir>
+# For interpreted languages (copy selectively — never the full build stage):
+# COPY --from=build --chown=app:app /app/<prod-deps-dir> /app/<prod-deps-dir>
+# COPY --from=build --chown=app:app /app/<src-dir> /app/<src-dir>
 
 # Declare every directory the application writes to at runtime.
 # In Kubernetes with readOnlyRootFilesystem: true, mount these as emptyDir volumes.
@@ -231,7 +250,7 @@ RUN addgroup -S app && adduser -S app -G app
 
 FROM gcr.io/distroless/static-debian12 AS production
 COPY --from=user-setup /etc/passwd /etc/group /etc/
-COPY --from=develop --chown=65534:65534 /app/binary /app/binary
+COPY --from=build --chown=65534:65534 /app/binary /app/binary
 USER app
 ```
 
@@ -249,7 +268,7 @@ USER app
 
 Use distroless unless the app requires a shell, a package manager, or system tools at runtime.
 
-The distroless `nonroot` uid 65532 aligns with `runAsUser: 65532` in the `kubernetes` skill's `resource-standards.md` — use consistent UIDs across Dockerfile and pod security context.
+The distroless `nonroot` uid 65532 aligns with `runAsUser: 65532` in the `kubernetes` skill's `resource-standards.md`. **The Dockerfile `USER` is the single source of truth for the UID** — the docker-compose `user:` and the chart's `runAsUser`/`runAsGroup`/`fsGroup` both mirror this exact value. Change it here, and update those in the same commit.
 
 **Architecture-agnostic binary downloads** (when a binary must be fetched from a URL):
 ```dockerfile
@@ -258,6 +277,24 @@ RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
 ```
 
 Never hardcode `amd64`, `x86_64`, or `arm64` in a URL or path.
+
+---
+
+## Read-only root filesystem — the writable-paths contract
+
+Production runs with a **read-only root filesystem**. The only writable locations are the ones declared as `VOLUME` in the Dockerfile — that list is the single source of truth for "what this app needs to write," and every runtime consumes it identically:
+
+| Declared in Dockerfile | docker-compose (dev) | Kubernetes (prod) |
+|---|---|---|
+| `VOLUME ["/tmp"]` | `tmpfs: [/tmp]` (or a named volume) | `emptyDir` mount at `/tmp` |
+| `VOLUME ["/var/cache/app"]` | `tmpfs`/named volume | `emptyDir` / PVC |
+| rootfs itself | `read_only: true` | `securityContext.readOnlyRootFilesystem: true` |
+
+- **Enforced in production.** The chart sets `readOnlyRootFilesystem: true` (see the `helm` skill's `defaults/values.yaml`) and mounts an `emptyDir` for each declared VOLUME. A write to an undeclared path crashes the container — that's the point: it forces every writable path to be explicit and reviewed.
+- **Recommended in dev.** Run `develop`/compose with `read_only: true` and the same paths mounted, so a missing VOLUME surfaces on a laptop, not in the cluster. Hot-reload tools that write belong on the bind-mounted source (kept writable); everything else stays read-only.
+- **Find the paths in Step 1.7** — temp files, caches, framework scratch dirs, on-disk logs. Each becomes one `VOLUME`. Keep the set minimal: every writable mount is attack surface and state to manage. If the app can be told to write only to `/tmp`, prefer that over many scattered VOLUMEs.
+
+The payoff: dev and prod fail the same way. If a read-only rootfs breaks something, you hit it identically on compose and in k8s, and the fix is one `VOLUME` line that propagates to both.
 
 ---
 
@@ -393,7 +430,7 @@ Maximum 5 iterations before stopping to report state to the user.
 
 | Symptom | Likely cause |
 |---|---|
-| Missing file in production | `COPY --from=develop` path wrong, or artifact wasn't built |
+| Missing file in production | `COPY --from=build` path wrong, or artifact wasn't built in the build stage |
 | Permission denied | File is owned by root; `--chown=app:app` was missing or path mismatch |
 | Binary not found at runtime | System dep present in `base`/`develop` but missing in production image |
 | Hot reload not working | Bind-mount path doesn't match `WORKDIR` |
@@ -449,11 +486,11 @@ Present the improved files with a summary:
 
 ### New Dockerfile (no existing file)
 
-1. **Check**: "No existing Dockerfile found. Will generate a new 3-stage one."
+1. **Check**: "No existing Dockerfile found. Will generate a new 4-stage one."
 2. **Explore**: "Finding dependency manifest... found `go.mod`. Reading it for the Go version and module path."
 3. **Identify**: "Go 1.23 project. Entry point is `cmd/server/main.go`. Binds to `$PORT` (default 8080). Writes temp files under `/tmp`."
 4. **Build requirements**: "No external system deps called at runtime. Single static binary output to `./server`."
-5. **Stage design**: "Base: `golang:1.23-alpine`. Develop: full Go toolchain + `air` for hot reload, builds binary. Production: `gcr.io/distroless/static-debian12:nonroot` with `--chown=65532:65532` and `VOLUME [\"/tmp\"]`."
+5. **Stage design**: "Base: `golang:1.23-alpine`. Build: full Go toolchain — `go mod download` (cached), then `go build -o /app/server`. Develop: `FROM build` + `air` for hot reload. Production: `gcr.io/distroless/static-debian12:nonroot` pinned by digest, `COPY --from=build` with `--chown=65532:65532`, `VOLUME [\"/tmp\"]`."
 6. **Generate**: "Writing Dockerfile and .dockerignore."
 7. **Build & test**: "Building develop target... building production target... running production container... verifying it stays up..."
 8. **Iterate** (if needed): "Container exited — logs show `/tmp` not writable. Adding `VOLUME [\"/tmp\"]` and retrying."
@@ -464,14 +501,14 @@ Present the improved files with a summary:
 1. **Check**: "Found existing Dockerfile. Reading it..."
 2. **Analyse project**: Same exploration as above to understand what the Dockerfile should do.
 3. **Evaluate**: "Checking against skill patterns..."
-   - "❌ Two stages (builder + runtime) — missing `develop` stage for docker-compose/skaffold"
+   - "❌ Two stages (builder + runtime) — missing the `build`/`develop` split for layer caching and the docker-compose/skaffold inner loop"
    - "❌ `COPY . .` in builder — should be explicit"
    - "❌ Files copied without `--chown` — owned by root in production"
    - "❌ No `VOLUME` — app writes to `/tmp` at startup"
    - "✅ Non-root USER directive already present"
    - "✅ Pinned image tags"
 4. **Preserve**: "Keeping the custom CA cert installation in base — it's intentional."
-5. **Improve**: "Adding develop stage, replacing `COPY . .`, adding `--chown`, adding `VOLUME`."
+5. **Improve**: "Adding `build` + `develop` stages, replacing `COPY . .`, adding `--chown`, adding `VOLUME`, digest-locking the production base."
 6. **Build & test**: "Building both targets... running production container... checking logs..."
 7. **Iterate** (if needed): "Production container exits — `--chown` uid doesn't match USER. Fixing and retrying."
 8. **Cleanup & present**: "Validation passed. Here are the improvements."
@@ -483,15 +520,18 @@ Present the improved files with a summary:
 ### Dockerfile checklist
 
 - [ ] Builds successfully — both `--target develop` and default (production)
-- [ ] Three named stages: `base`, `develop`, `production`
-- [ ] All base images use pinned version tags (no `:latest`)
-- [ ] No hardcoded `amd64`/`arm64`/`x86_64` anywhere
+- [ ] Four named stages: `base`, `build`, `develop`, `production`
+- [ ] `develop` is `FROM build`; `production` copies artifacts `COPY --from=build`
+- [ ] No base image uses `:latest`; dev-side stages pinned by tag
+- [ ] `production` base image locked by digest (`@sha256:…`), preferably the multi-arch manifest list
+- [ ] No hardcoded `amd64`/`arm64`/`x86_64` anywhere; arch detected dynamically
 - [ ] No `COPY . .` in any stage — all COPYs are explicit
-- [ ] Dependency manifests copied before source code in `develop` (layer caching)
+- [ ] In `build`, dependency manifests copied and installed before source `COPY` (layer caching)
 - [ ] Production stage creates an explicit `app` user and group
 - [ ] Every `COPY` in the production stage uses `--chown=app:app` (or `--chown=65532:65532` for distroless)
 - [ ] `USER app` appears before `CMD` in production
-- [ ] All writable runtime paths declared with `VOLUME`
+- [ ] All writable runtime paths declared with `VOLUME` — the contract for read-only rootfs
+- [ ] Production designed for a read-only root filesystem; each `VOLUME` maps to a compose tmpfs/volume (dev) and a k8s `emptyDir` (prod)
 - [ ] Production uses distroless (or slim with documented justification)
 - [ ] CMD in exec form (`["executable", "arg"]`) — never shell form in production
 - [ ] No HEALTHCHECK
@@ -525,6 +565,7 @@ Once the Dockerfile and `.dockerignore` are done, check the repo and offer which
 
 | Skill | Offer when |
 |-------|-----------|
+| `docker-compose` | No `docker-compose.yaml` — the develop stage is built to be consumed by a compose local loop |
 | `skaffold` | No `skaffold.yaml` — the develop stage exists specifically for skaffold/docker-compose local loops |
 | `devbox` | No `devbox.json` in the repo root |
 | `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` in the repo root |

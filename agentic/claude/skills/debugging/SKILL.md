@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: Systematic debugging methodology: reproduce, isolate, hypothesize, test, fix, verify. Includes checklists for environment, concurrency, resources, data, and Nix-specific issues.
+description: Systematic debugging methodology — reproduce, isolate, hypothesize, test, fix, verify. Use when a bug reproduces, a test fails, a stack trace or error message needs root-causing, or behaviour differs across environments (dev vs CI vs prod). Includes checklists for environment, concurrency, resources, data, permissions, and Nix-specific issues. For the reproduce/verify steps the built-in /run and /verify skills can drive the actual app.
 user-invocable: true
 ---
 
@@ -135,7 +135,7 @@ Systematic approach to identifying and fixing bugs efficiently.
 
 | Skill | Offer when |
 |---|---|
-| `code-review` | Bug was introduced by a quality issue that a review would have caught |
+| `platform-review` | Bug was introduced by a quality issue that a review would have caught |
 | `tidy` | Debug session revealed mechanical inconsistencies (mismatched config, wrong indentation) |
 | `kubernetes` | Bug is in a Kubernetes workload (probes, resources, scheduling, secrets) |
 | `terraform` | Bug is in infrastructure state or provider configuration |

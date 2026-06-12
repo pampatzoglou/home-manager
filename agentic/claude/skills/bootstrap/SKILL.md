@@ -1,8 +1,8 @@
 ---
 name: bootstrap
-description: Scaffold a new project repository — directory structure, .gitignore, and sequenced skill invocation (devbox → taskfile → helm → cicd → document). Handles single-service and multi-service monorepo layouts.
+description: Scaffold a new project repository — directory structure, .gitignore, and sequenced skill invocation (devbox → taskfile → helm → ci → document). Handles single-service and multi-service monorepo layouts.
 user-invocable: true
-requires: [devbox, taskfile, helm, cicd, document]
+requires: [devbox, taskfile, helm, ci, document]
 ---
 
 # Bootstrap
@@ -89,7 +89,7 @@ services/worker/
 1. devbox
 2. taskfile
 3. helm  (api, worker)
-4. cicd
+4. ci
 5. document
 
 Proceed?
@@ -167,7 +167,7 @@ Invoke each skill in order. Each skill is interactive — let it run its own flo
 | 1 | `devbox` | Pin tool versions; creates `devbox.json`, `devbox.lock`, `.envrc` |
 | 2 | `taskfile` | Standard task set; references the tools devbox pinned |
 | 3 | `helm` | Run once per service; chart goes into `deploy/charts/<service>/` |
-| 4 | `cicd` | GitHub Actions workflows; calls tasks devbox+taskfile defined |
+| 4 | `ci` | GitHub Actions workflows; calls tasks devbox+taskfile defined (orchestrates the `github-actions` skill) |
 | 5 | `document` | README.md + `docs/ARCHITECTURE.md`; references chart READMEs helm wrote |
 
 After all skills complete, tell the user:

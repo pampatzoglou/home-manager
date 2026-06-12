@@ -1,9 +1,14 @@
-{ lib, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
   # Security Configuration
-  # Includes SSH hardening and FIDO2/YubiKey support
-  # Manual setup required - see docs/DEVELOPER_IDENTITY.md for FIDO key generation
+  # Includes SSH hardening, FIDO2/YubiKey support, and GPG/OpenPGP
+  # Manual setup required - see docs/DEVELOPER_IDENTITY.md
 
   programs.direnv = {
     enable = true;
@@ -12,25 +17,61 @@
   };
 
   # SSH agent is managed in zsh.nix for FIDO2 Yubikey support
-  services.ssh-agent = { enable = false; };
+  services.ssh-agent = {
+    enable = false;
+  };
 
   programs.ssh = {
     enable = true;
     enableDefaultConfig = false;
 
-    matchBlocks = {
+    settings = {
       "*" = {
-        addKeysToAgent = "yes";
-        compression = true;
-        controlMaster = "no";
-        controlPath = "none";
-        forwardAgent = false;
-        serverAliveInterval = 60;
-        serverAliveCountMax = 3;
-
-        extraOptions = { TCPKeepAlive = "yes"; };
+        AddKeysToAgent = "yes";
+        Compression = "yes";
+        ControlMaster = "no";
+        ControlPath = "none";
+        ForwardAgent = "no";
+        ServerAliveInterval = 60;
+        ServerAliveCountMax = 3;
+        TCPKeepAlive = "yes";
       };
     };
+  };
+
+  # GPG Configuration
+  # Uses YubiKey OpenPGP applet for encryption/signing (separate from FIDO SSH keys)
+  # Manual setup required - see docs/DEVELOPER_IDENTITY.md for GPG key generation
+  programs.gpg = {
+    enable = true;
+    mutableKeys = true;
+    mutableTrust = true;
+
+    settings = {
+      use-agent = true;
+      armor = true;
+    };
+
+    scdaemonSettings = {
+      # Disable CCID to avoid conflicts with macOS CryptoTokenKit / system PCSC
+      # Safe on Linux too (falls back to PCSC)
+      disable-ccid = true;
+    };
+  };
+
+  # GPG Agent - manages passphrase caching and smartcard access
+  # Linux: systemd socket activation / macOS: launchd agent
+  services.gpg-agent = {
+    enable = true;
+    enableSshSupport = false; # SSH uses FIDO keys, not GPG
+    enableScDaemon = true; # required for YubiKey OpenPGP applet
+    enableZshIntegration = true;
+
+    pinentry.package = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-curses;
+
+    # Cache passphrases for 2 hours, max 4 hours
+    defaultCacheTtl = 7200;
+    maxCacheTtl = 14400;
   };
 
   # FIDO/YubiKey setup reminder
@@ -67,6 +108,14 @@
     echo "  ssh-add -K                   # Load resident keys into SSH agent"
     echo ""
     echo "📚 See docs/DEVELOPER_IDENTITY.md for complete setup guide"
+    echo ""
+    echo "=== GPG/OpenPGP Configuration ==="
+    echo ""
+    echo "✓ GPG agent configured with YubiKey smartcard support"
+    echo "✓ Pinentry configured for passphrase entry"
+    echo ""
+    echo "⚠️  Manual GPG key setup required:"
+    echo "  See docs/DEVELOPER_IDENTITY.md for GPG key generation and YubiKey setup"
     echo ""
   '';
 }

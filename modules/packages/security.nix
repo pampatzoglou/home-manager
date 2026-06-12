@@ -23,6 +23,7 @@
     # Encryption and security tools
     diceware
     pwgen
+    paperkey
 
     # Secret management
     vault
@@ -30,5 +31,6 @@
     boundary
     teller
     doppler
+    pass
   ];
 }

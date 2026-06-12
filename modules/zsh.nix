@@ -1,6 +1,9 @@
 { ... }:
 
 {
+  # Ensure user-local binaries (e.g. native Claude Code install) are on PATH
+  home.sessionPath = [ "$HOME/.local/bin" ];
+
   programs.zoxide = {
     enable = true;
     enableZshIntegration = true;

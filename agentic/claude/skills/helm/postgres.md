@@ -75,7 +75,7 @@ spec:
   path: {{ required "database.vault.path is required" .Values.database.vault.path | quote }}
   resultType: {{ .Values.database.vault.resultType | default "Data" }}
 ---
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: {{ include "my-chart.fullname" . }}-db

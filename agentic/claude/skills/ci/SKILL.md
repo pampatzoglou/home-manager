@@ -1,6 +1,6 @@
 ---
 name: ci
-description: Generate intelligent CI workflows through interactive conversation by analyzing repository structure and user preferences
+description: Generate CI workflows for a repository by analyzing its structure and asking about preferences, then writing GitHub Actions that delegate job logic to a Taskfile via devbox. Use when setting up or revising continuous integration, adding or editing .github/workflows/, wiring test/lint/build/release pipelines, or making CI call project tasks. Orchestrates the github-actions, taskfile, and devbox skills.
 user-invocable: true
 requires: [github-actions, taskfile, devbox]
 ---

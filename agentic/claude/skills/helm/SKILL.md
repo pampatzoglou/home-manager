@@ -44,9 +44,14 @@ my-chart/
 │   ├── deployment.yaml      # or cronjob.yaml, statefulset.yaml
 │   ├── service.yaml
 │   ├── serviceaccount.yaml
+│   ├── rbac.yaml            # Role/RoleBinding — only when the workload calls the API
+│   ├── networkpolicy.yaml   # ingress/egress segmentation
+│   ├── configmap.yaml       # non-secret config — behind config.enabled
 │   ├── secrets.yaml
 │   ├── hpa.yaml
 │   ├── pdb.yaml
+│   ├── servicemonitor.yaml  # or podmonitor.yaml — behind metrics.enabled
+│   ├── prometheusrule.yaml  # behind metrics.enabled
 │   ├── extra-manifests.yaml
 │   └── NOTES.txt
 └── README.md
@@ -232,6 +237,8 @@ metrics:
 
 Use `enabled: false` at the top of feature sections and guard the entire Kubernetes resource with `{{- if .Values.<feature>.enabled }}`. Don't guard individual lines inside a resource.
 
+**Anything that would block or complicate local development defaults off in the base `values.yaml`** — NetworkPolicy, strict egress restrictions, `rbac.clusterScope`, ExternalSecret-only credentials. The base chart must deploy on a bare `kind` cluster (and work alongside `docker-compose`) with just `values.yaml`. Put the real rules in the base file as commented examples, and switch them on in `defaults/values.yaml` or the per-env overlay — never in the base.
+
 ### Standard infrastructure keys
 
 Every chart should define these (even if empty) so overlays can set them without knowing whether the chart "supports" them:
@@ -239,6 +246,7 @@ Every chart should define these (even if empty) so overlays can set them without
 ```yaml
 nameOverride: ""
 fullnameOverride: ""
+partOf: ""               # app.kubernetes.io/part-of — the larger app/suite; defaults to chart name
 imagePullSecrets: []
 podAnnotations: {}
 podLabels: {}
@@ -333,6 +341,7 @@ helm.sh/chart: {{ include "my-chart.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: {{ .Values.partOf | default (include "my-chart.name" .) }}
 {{- end }}
 
 {{- define "my-chart.selectorLabels" -}}
@@ -474,6 +483,7 @@ Include `README.md` in `.helmignore` — it's for humans reading the repo, not f
 - [ ] Every knob has a default; recommended production shapes are commented out
 - [ ] Feature sections use `enabled: false` guard pattern
 - [ ] `_helpers.tpl` defines name, fullname, chart, labels, selectorLabels
+- [ ] Common labels include `app.kubernetes.io/part-of` (in the labels helper, not selectorLabels)
 - [ ] Selector labels don't include version
 - [ ] `serviceAccount.automount` defaults to `false`
 - [ ] `extraObjects: []` present for charts reused across teams
