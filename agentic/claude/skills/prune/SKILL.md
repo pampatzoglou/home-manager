@@ -1,6 +1,6 @@
 ---
 name: prune
-description: Find dead and unused code — unreferenced Helm values, unused Terraform variables/outputs/locals, orphaned files, commented-out blocks, and leftover scaffolding. Prioritises AI context bloat: verbose comments, duplicate docs, large auto-generated files, and anything that consumes tokens without informing understanding.
+description: 'Find dead and unused code — unreferenced Helm values, unused Terraform variables/outputs/locals, orphaned files, commented-out blocks, and leftover scaffolding. Prioritises AI context bloat: verbose comments, duplicate docs, large auto-generated files, and anything that consumes tokens without informing understanding.'
 user-invocable: true
 ---
 
@@ -39,8 +39,18 @@ These are the highest-leverage removals. Each one reduces the token cost every t
 
 ### Verbose configuration
 - [ ] Config files with every possible key explicitly set to its default value — only non-default values belong in committed config
-- [ ] `values.yaml` entries that are placeholder examples rather than real defaults (e.g., `host: example.com`, `password: changeme`)
+- [ ] Placeholder values (`host: example.com`, `password: changeme`) in `defaults/values.yaml` or an `<env>/values.yaml` — at those layers a placeholder is a real bug
 - [ ] Heavily annotated config files where the annotations duplicate the upstream docs — link to the docs instead
+
+**Exempt: a Helm chart's base `values.yaml`.** The `helm` skill mandates its shape, and every
+part of it looks like bloat to the heuristics above:
+
+- The standard infrastructure keys (`nodeSelector: {}`, `tolerations: []`, `extraObjects: []`, …) are declared even when empty so overlays can set them without the chart "supporting" them. That's interface, not dead config.
+- Commented-out production shapes (`resources:`, `autoscaling:`, `metrics:`) are required inline documentation of every knob the chart exposes.
+- Scaffold-looking defaults are deliberate — the base layer exists to render on a bare kind cluster; real values live in `defaults/` and `<env>/`.
+
+Flagging these puts `prune` in a permanent fight with chart authoring. Judge `values.yaml` by
+whether a key is *reachable from a template*, not by whether it's empty or commented.
 
 ### Large auto-generated or vendored content
 - [ ] Auto-generated files that are regenerated on every build and shouldn't be committed
@@ -76,7 +86,8 @@ These are the highest-leverage removals. Each one reduces the token cost every t
 ### Leftover scaffolding
 - Default `NOTES.txt` content that was never customized
 - Placeholder comments like `# TODO: add your resources here`
-- Example values in `values.yaml` that are clearly placeholders (`example.com`, `change-me`, `your-name`)
+- `appVersion: "1.16.0"` still at the `helm create` default in `Chart.yaml`
+- Placeholder values (`example.com`, `change-me`) in `defaults/values.yaml` or `<env>/values.yaml` — **not** in the base `values.yaml`, where scaffold defaults are intentional (see the exemption under *Verbose configuration*)
 
 ---
 
@@ -156,8 +167,12 @@ These are the highest-leverage removals. Each one reduces the token cost every t
 ## General
 
 ### Orphaned files
-- Config files (`.env.example`, `docker-compose.yml`, `Makefile`) that are never referenced by any script, CI workflow, or documentation
+- Config files (`.env.example`, `Makefile`) that are never referenced by any script, CI workflow, or documentation
 - Files in a `scripts/` or `tools/` directory that are not called from the Taskfile, CI, or README
+
+**Not orphaned:** `docker-compose.yaml`, `skaffold.yaml`, `.envrc`, `kind.yaml`. These are
+local inner-loop tooling — a developer runs them by hand and nothing in CI is meant to call
+them. "Unreferenced by CI" is their normal state, not a finding.
 
 ### Commented-out code
 - Blocks of 4+ consecutive commented lines that appear to be disabled code (not documentation)

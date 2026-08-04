@@ -187,7 +187,7 @@ Set on each `Application` (or `ApplicationSet` template) with:
 ```yaml
 metadata:
   annotations:
-    argoproj.io/sync-wave: "-5"
+    argocd.argoproj.io/sync-wave: "-5"
 ```
 
 When in doubt about a new component's wave, ask: "what would break if this came up *before* its dependencies finished?" That answer points to the right tier.
@@ -196,7 +196,9 @@ When in doubt about a new component's wave, ask: "what would break if this came 
 
 Services repos use `ApplicationSet` to generate one `Application` per chart × environment. This avoids hand-maintaining N Applications and is the only allowed pattern in `deploy/argo/`.
 
-A minimal generator over the `deploy/charts/` directory:
+A minimal generator over the `deploy/charts/` directory. The `argo-applicationset` skill owns
+the full canonical template (sync options, `managedNamespaceMetadata`, `targetRevision`
+strategies) — this is the trimmed shape, and it must stay consistent with that skill:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -205,6 +207,8 @@ metadata:
   name: my-service
   namespace: argocd
 spec:
+  goTemplate: true                    # always — legacy {{path}} syntax is deprecated
+  goTemplateOptions: [missingkey=default]
   generators:
     - matrix:
         generators:
@@ -219,31 +223,37 @@ spec:
                 - env: prod
   template:
     metadata:
-      name: '{{path.basename}}-{{env}}'
+      name: '{{ .path.basename }}-{{ .env }}'
       annotations:
-        argoproj.io/sync-wave: "10"
+        argocd.argoproj.io/sync-wave: "10"
     spec:
       project: workloads
       source:
         repoURL: <repo>
-        path: '{{path}}'
+        path: '{{ .path.path }}'
         helm:
           valueFiles:
             - values.yaml
             - defaults/values.yaml
-            - '{{env}}/values.yaml'
+            - '{{ .env }}/values.yaml'
+          ignoreMissingValueFiles: true
       destination:
         server: https://kubernetes.default.svc
-        namespace: my-service-{{env}}
+        namespace: my-service-{{ .env }}
       syncPolicy:
-        automated: { prune: true, selfHeal: true }
+        automated: { selfHeal: true }   # prune omitted => false; see argo-applicationset
 ```
 
 Single source of truth: change the ApplicationSet, and every generated Application updates.
 
+**`prune` stays off.** `prune: true` lets a chart deletion cascade into deleting live
+resources — including PVCs. Enable it per-Application only for genuinely stateless
+components, as the `argo-applicationset` skill describes.
+
 ## Templating locally
 
-Use `task template ENV=dev` (or `ENV=prod`) — see the `taskfile` skill for the full Taskfile reference. This is equivalent to:
+Use `task template:dev` (or `task template:prod`) — the `action:env` form the `taskfile`
+skill defines. This is equivalent to:
 
 ```bash
 helm template <release> deploy/charts/<chart> \
@@ -251,10 +261,13 @@ helm template <release> deploy/charts/<chart> \
   -f deploy/charts/<chart>/defaults/values.yaml \
   -f deploy/charts/<chart>/<env>/values.yaml \
   -f deploy/charts/<chart>/<env>/<variant>.yaml \   # only when CHAIN is set and the file exists
-  --output-dir .argo/<chart>
+  --output-dir .argo/<env>
 ```
 
-The `.argo/` output directory is what ArgoCD reads — committing the rendered output is intentional.
+`.argo/` is a gitignored local render artifact. ArgoCD does **not** read it — the
+ApplicationSet points at `deploy/charts/<chart>` and renders the chart itself (see the
+`argo-applicationset` skill). Rendering locally is how you review what the cluster will
+get before pushing.
 
 ## Priority classes
 
@@ -281,12 +294,14 @@ CRDs go in dedicated charts (`*-crds`) at low waves. Don't bundle CRDs into the 
 Before opening a PR:
 
 ```bash
-# Render every environment to make sure nothing broke
-task template ENV=dev
-task template ENV=prod
+# Snapshot the current render, make your change, then compare
+task template:dev && cp -r .argo/dev /tmp/argo-before
 
-# Diff the rendered output if you want to see what actually changed
-git diff .argo/
+# ... edit the chart ...
+
+task template:dev && diff -ru /tmp/argo-before .argo/dev
 ```
 
-The diff in `.argo/` is the source of truth for what will reach the cluster — review it, not just the source chart changes.
+`.argo/` is gitignored, so `git diff .argo/` shows nothing — compare against a snapshot
+instead. The rendered diff is the clearest view of what your chart change actually does to
+the cluster, so review it alongside the source change, not instead of it.

@@ -1,27 +1,24 @@
 {
-  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.10.5/.schema/devbox.schema.json",
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/main/.schema/devbox.schema.json",
   "packages": [
-    "terraform@1.7.0",
-    "go-task@3.35.0",
-    "tflint@latest",
-    "tfsec@latest",
-    "terraform-docs@latest",
-    "pre-commit@latest",
-    "jq@latest"
+    "terraform@1.9",
+    "go-task@3.40",
+    "tflint@0.55",
+    "tfsec@1.28",
+    "terraform-docs@0.19",
+    "pre-commit@4.0",
+    "jq@1.7"
   ],
   "shell": {
     "init_hook": [
-      "echo '🌍 Terraform environment ready'",
-      "terraform version",
-      "echo ''",
-      "echo 'Available tasks:'",
-      "task --list 2>/dev/null || echo '  (no Taskfile.yml in current directory)'"
+      "echo \"devbox ready — terraform $(terraform version -json 2>/dev/null | jq -r .terraform_version 2>/dev/null)\""
     ],
     "scripts": {
-      "fresh": [
-        "task clean",
-        "task check"
-      ]
+      "fmt": ["task fmt"],
+      "lint": ["task lint"],
+      "scan": ["task scan"],
+      "audit": ["task audit"],
+      "fresh": ["task clean", "task check"]
     }
   }
 }

@@ -12,7 +12,7 @@ requires: [helm, devbox, taskfile]
 Before starting any task, load these skills:
 
 - `helm` — chart anatomy, values layering, `_helpers.tpl`, local validation
-- `devbox` — tool pinning, `.envrc`, cluster lifecycle scripts
+- `devbox` — tool pinning for local dev, `.envrc`, cluster lifecycle scripts
 - `taskfile` — `action:env` naming (`template:dev`, `audit:prod`), standard task set
 
 Also load `skaffold` for local dev tasks, `github-actions` for CI tasks, and `document` for README/ARCHITECTURE.md tasks.
@@ -33,7 +33,7 @@ Identify which mode the task fits, then load the relevant reference. More than o
 | Local dev loop | skaffold, kind cluster, inner loop setup | `skaffold` skill |
 | Environment / tooling setup | devbox, `.envrc`, package pinning | `devbox` skill |
 | Taskfile (lint, template, audit) | Taskfile authoring, helm tasks, kubescape | `taskfile` skill |
-| GitHub Actions CI | CI workflow setup, matrix, `.argo/` diff check | `github-actions` skill |
+| GitHub Actions CI | CI workflow setup, matrix, `.argo/` render check | `github-actions` skill |
 
 If the user's repo follows the conventions described in `conventions.md`, also read that file. The team uses two layouts: a **platform repo** where top-level folders are namespaces (e.g., `cert-manager/`, `monitoring/datadog/`), and a **services repo** with a `deploy/charts/` + `deploy/argo/` structure. Tells for either: a `defaults/values.yaml` next to `dev/`/`prod/` dirs inside a chart, ArgoCD `Application`/`ApplicationSet` files with `argocd.argoproj.io/sync-wave` annotations, references to `linstor-csi-lvm`, or a `Taskfile.yaml` with `template`/`lint` tasks.
 
@@ -42,8 +42,8 @@ If the user's repo follows the conventions described in `conventions.md`, also r
 These are non-negotiable for any K8s resource Claude produces or approves. The reference files expand on them.
 
 1. **GitOps, not kubectl apply.** Changes go through git and are reconciled by ArgoCD (or Flux). Never instruct the user to `kubectl apply` to a managed cluster as the primary workflow — only as a last-resort debugging step on dev.
-2. **No production secrets in git.** Use `external-secrets` / SealedSecrets / Vault. If a chart needs a credential, reference an `ExternalSecret` or a pre-existing `Secret`, never an inline literal.
-3. **Every workload has resource requests and limits.** No exceptions for "it's just a small thing" — unbounded pods are how clusters die.
+2. **No production secrets in git.** Use `external-secrets` / Vault. If a chart needs a credential, reference an `ExternalSecret` or a pre-existing `Secret`, never an inline literal. The `secrets` skill owns the source modes and path conventions.
+3. **Every workload has resource requests, and a memory limit.** No exceptions for "it's just a small thing" — unbounded pods are how clusters die. A *CPU* limit is a deliberate call: it caps throughput via throttling, so latency-sensitive services often set requests only. Omitting one is a decision to state, not a field to forget — see `resource-standards.md`.
 4. **Every workload runs as non-root with a dropped capability set**, unless the workload demonstrably cannot. The defaults in `resource-standards.md` are the floor.
 5. **Every workload has liveness and readiness probes** (or a documented reason not to — e.g., one-shot Jobs).
 6. **Pin image tags to a digest or specific version.** Never `:latest` in committed manifests.

@@ -1,6 +1,6 @@
 ---
 name: docker-compose
-description: Author docker-compose.yaml for the local development inner loop, built to mirror how the workload runs in Kubernetes. Use when adding or editing a compose file, setting up local dev for a service, or running docker compose up. Every service gets named volumes (like PVCs/emptyDir), file-based secrets mounted at /run/secrets/<name> via the *_FILE / FILE__ env convention (identical to mounted k8s Secrets so app code is unchanged dev↔prod), and a securityContext-equivalent hardening block (read_only, tmpfs, cap_drop, no-new-privileges, non-root user). Triggers on docker-compose, compose.yaml, docker compose, "local dev environment", "run it locally".
+description: 'Author docker-compose.yaml for the local development inner loop, built to mirror how the workload runs in Kubernetes. Use when adding or editing a compose file, setting up local dev for a service, or running docker compose up. Every service gets named volumes (like PVCs/emptyDir), file-based secrets mounted at the same nested path the chart uses via the *_FILE env convention (the `secrets` skill owns that contract), and a securityContext-equivalent hardening block (read_only, tmpfs, cap_drop, no-new-privileges, non-root user). Triggers on docker-compose, compose.yaml, docker compose, "local dev environment", "run it locally".'
 user-invocable: true
 requires: [dockerfile]
 ---
@@ -15,8 +15,8 @@ The app should read secrets, write state, and run under the same constraints loc
 
 | Local dev (compose) | Kubernetes equivalent | Why it must match |
 |---|---|---|
-| `secrets:` `file:` + per-service `target: /run/secrets/x` | mounted `Secret` / ExternalSecret volume | identical in-container path → no code change |
-| `*_FILE` / `FILE__` env pointing at `/run/secrets/x` | same `*_FILE` env in the chart | app reads the secret the same way both places |
+| `secrets:` `file:` + per-service `target: /var/run/secrets/<block>/<key>` | mounted `Secret` / ExternalSecret volume | identical in-container path → no code change |
+| `*_FILE` env pointing at `/var/run/secrets/<block>/<key>` | same `*_FILE` env in the chart | app reads the secret the same way both places |
 | named volume / bind mount | PVC (or `hostPath`) | persistent state survives restarts |
 | `tmpfs:` | `emptyDir` (memory) | writable scratch when the rootfs is read-only |
 | `read_only: true` | `readOnlyRootFilesystem: true` | immutable rootfs catches accidental writes early |
@@ -28,39 +28,35 @@ The app should read secrets, write state, and run under the same constraints loc
 | `networks:` (frontend/backend) | NetworkPolicy / namespace boundaries | segment traffic the same way |
 | `expose:` vs `ports:` | ClusterIP vs NodePort / Ingress | only publish what truly needs the host |
 
-Keep the secret paths and the capability set **the same** as the `kubernetes`/`helm` skills' `resource-standards.md` — that consistency is the whole point. The UID has a single source of truth: the Dockerfile (see below).
+Two contracts here are owned elsewhere and must be copied, not re-decided: the **secret path and env var** belong to the `secrets` skill, and the **capability set and security context** to `kubernetes`/`resource-standards.md`. That consistency is the whole point. The UID has a single source of truth: the Dockerfile (see below).
 
 ## Secrets — always from files, never inline
 
-Define secrets once at the top level from files, then mount each into the services that need it at the **same path the chart uses** (`/run/secrets/<name>`). Never put a secret in `environment:` as a literal.
+**The `secrets` skill owns this contract** — the Vault path convention, the in-container mount path, and the `*_FILE` env naming. Read it before wiring anything; what follows is how compose implements it.
+
+Define secrets once at the top level from files, then mount each into the services that need it at **the exact path the chart mounts**: `/var/run/secrets/<block>/<key>`. Never put a secret in `environment:` as a literal.
 
 ```yaml
 secrets:
+  db_username:
+    file: ./secrets/db/username       # gitignored; one file per key, no trailing newline
   db_password:
-    file: ./secrets/db_password        # gitignored; one secret per file, no trailing newline
-  api_token:
-    file: ./secrets/api_token
+    file: ./secrets/db/password
 ```
 
-Per service, mount it and point the app at the file with the `*_FILE` convention (most images support either `FOO_FILE=/run/secrets/foo` or the linuxserver `FILE__FOO=...` form):
+Per service, mount it and point the app at the file with the `*_FILE` convention:
 
 ```yaml
     environment:
-      - DATABASE_PASSWORD_FILE=/run/secrets/db_password
+      - DATABASE_PASSWORD_FILE=/var/run/secrets/db/password
     secrets:
       - source: db_password
-        target: /run/secrets/db_password
+        target: /var/run/secrets/db/password
 ```
 
-**Where the files come from.** `./secrets/` is gitignored and populated locally — ideally from the **same Vault paths the cluster reads via ExternalSecret** (see the `helm` skill's credential blocks and the `devbox` skill's Vault init). A small task can materialise them so dev and prod resolve identical keys:
+**Mount to the nested path, not a flat file.** `target: /run/secrets/db_password` is the tempting shorthand and it breaks the whole premise: a mounted Kubernetes Secret produces a *directory of keys*, so the chart's path is `/var/run/secrets/db/password`. Flatten it here and `DATABASE_PASSWORD_FILE` has to differ between dev and prod — the one thing this parity exercise exists to prevent. (`/var/run` is a symlink to `/run` on Debian and distroless-Debian, so they resolve identically; write the same string as the chart so the match is auditable.)
 
-```sh
-# task secrets:files — write Vault values to the files compose mounts
-mkdir -p secrets && chmod 700 secrets
-vault kv get -field=password secret/myapp/dev > secrets/db_password
-vault kv get -field=token    secret/myapp/dev > secrets/api_token
-chmod 600 secrets/*
-```
+**Where the files come from.** `./secrets/` is gitignored and populated from the **same Vault paths the cluster reads via ExternalSecret** — see the `secrets` skill for `task secrets:pull`, and the `devbox` skill for pulling on shell entry.
 
 `.gitignore`:
 
@@ -73,7 +69,7 @@ secrets/
 
 - **Named volumes** for persistent state (`name:/path`) — the PVC equivalent.
 - **Read-only bind mounts** for config you edit in the repo (`./config/app:/etc/app:ro`) — the ConfigMap equivalent; `:ro` mirrors a read-only mount.
-- **`tmpfs`** for writable scratch when `read_only: true` is set — the `emptyDir` equivalent. These writable paths are the **same ones the Dockerfile declares as `VOLUME`** (the single source of truth) and the chart mounts as `emptyDir` — keep all three in sync. List every path the app writes at runtime (`/tmp`, `/run`, framework caches).
+- **`tmpfs`** for writable scratch when `read_only: true` is set — the `emptyDir` equivalent. These writable paths are the **same ones the Dockerfile declares as `VOLUME`** (the single source of truth) and the chart mounts as `emptyDir` — keep all three in sync. List every path the app writes at runtime (`/tmp`, framework caches) — but not `/run` wholesale, which would shadow the secret mounts.
 
 ```yaml
 volumes:
@@ -95,14 +91,19 @@ Apply this to every service by default; relax only with a comment explaining why
 ```yaml
     read_only: true
     tmpfs:
-      - /tmp
-      - /run
+      - /tmp                          # plus each path the Dockerfile declares as VOLUME
     user: "65532:65532"               # the Dockerfile's USER — see "One UID" below
     cap_drop: [ALL]
     cap_add: []                       # add back only what's proven necessary
     security_opt:
       - no-new-privileges:true
 ```
+
+**tmpfs the specific paths the app writes, not `/run` wholesale.** Secrets land under
+`/var/run/secrets/…` (which is `/run/secrets/…` — `/var/run` is a symlink), so a blanket
+`tmpfs: /run` puts a fresh empty filesystem over the same subtree the secret mounts occupy.
+List the paths the Dockerfile declares as `VOLUME` instead. Either way, verify with the
+`exec … cat` check under **Validate** — an empty read there is this bug.
 
 ### One UID, defined in the Dockerfile
 
@@ -127,7 +128,7 @@ name: myapp
 
 secrets:
   db_password:
-    file: ./secrets/db_password
+    file: ./secrets/db/password
 
 networks:
   frontend:
@@ -146,7 +147,7 @@ services:
       target: develop                 # the dockerfile skill's hot-reload stage
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp, /run]
+    tmpfs: [/tmp]                     # + each Dockerfile VOLUME; not /run (see hardening)
     user: "65532:65532"               # = Dockerfile USER = chart runAsUser
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -157,10 +158,10 @@ services:
     environment:
       - DATABASE_HOST=db
       - DATABASE_USER=myapp
-      - DATABASE_PASSWORD_FILE=/run/secrets/db_password   # *_FILE, not a literal
+      - DATABASE_PASSWORD_FILE=/var/run/secrets/db/password  # *_FILE, not a literal
     secrets:
       - source: db_password
-        target: /run/secrets/db_password
+        target: /var/run/secrets/db/password
     volumes:
       - .:/app                        # bind source for hot reload (dev-only)
     ports:
@@ -176,7 +177,7 @@ services:
     image: postgres:17
     restart: unless-stopped
     read_only: true
-    tmpfs: [/tmp, /run/postgresql]
+    tmpfs: [/tmp, /var/run/postgresql]  # postgres writes its socket here
     user: "999:999"                   # the postgres image's own UID, not ours
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -184,10 +185,10 @@ services:
     environment:
       - POSTGRES_USER=myapp
       - POSTGRES_DB=myapp
-      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+      - POSTGRES_PASSWORD_FILE=/var/run/secrets/db/password
     secrets:
       - source: db_password
-        target: /run/secrets/db_password
+        target: /var/run/secrets/db/password
     volumes:
       - db_data:/var/lib/postgresql/data
     expose:
@@ -215,7 +216,7 @@ docker compose logs -f app
 docker compose down                   # add -v to also drop named volumes
 ```
 
-Wait for `healthy` before declaring success; a container can be `running` but not ready. Then confirm the secret landed: `docker compose exec app cat /run/secrets/db_password` should match Vault (don't paste the value into chat).
+Wait for `healthy` before declaring success; a container can be `running` but not ready. Then confirm the secret landed: `docker compose exec app cat /var/run/secrets/db/password` should match Vault (don't paste the value into chat).
 
 ## When compose vs skaffold
 

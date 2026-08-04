@@ -54,6 +54,7 @@ build:
       context: .
       docker:
         dockerfile: Dockerfile
+        target: develop   # REQUIRED — see "Build the develop stage" below
       sync:
         manual: []        # add infer patterns here for hot-reload without full rebuild
 
@@ -73,6 +74,22 @@ manifests:
 deploy:
   kubeContext: kind-dev   # fail fast if pointed at the wrong cluster
 ```
+
+## Build the develop stage
+
+`target: develop` is not optional. Omitting it makes Docker build the **last** stage in the
+Dockerfile — which the `dockerfile` skill defines as `production`: distroless, no shell, no
+hot-reload daemon, read-only rootfs. Skaffold will happily sideload it and the pod will run,
+so the failure is quiet: you get an inner loop that never reloads, and `skaffold dev`'s file
+sync has nothing to sync into.
+
+The `develop` stage exists precisely for this and for `docker-compose` — both consume the
+same stage, so the image is identical across the two local loops.
+
+| Symptom | Cause |
+|---|---|
+| Edits don't appear without a full rebuild | `target: develop` missing — you're running `production` |
+| `exec: "sh": executable file not found` on `skaffold debug` | Same — distroless has no shell |
 
 ## Image naming for kind
 
@@ -96,7 +113,7 @@ skaffold delete   # tear down what skaffold deployed
 
 ## Behavior notes
 
-- **Values ordering must match `task template`** — if `task template ENV=dev` works but `skaffold dev` doesn't, check that `valuesFiles` are in the same order with the same files.
+- **Values ordering must match `task template:<env>`** — if `task template:dev` works but `skaffold dev` doesn't, check that `valuesFiles` are in the same order with the same files.
 - **Sideloading takes a few seconds per rebuild.** Use multi-stage Dockerfiles and `sync.infer` for source-only changes that don't need a full rebuild.
 - **Skaffold doesn't know about ArgoCD.** Resources placed in the kind cluster are unrelated to what ArgoCD reconciles — keep the kind cluster in separate namespaces.
 - **Profiles are for local dev variations** (overlay selection, debug builds), not for targeting different clusters.
@@ -131,7 +148,7 @@ Activate with `skaffold dev -p <overlay-value>`. Profiles are local dev variatio
 
 | Goal | Use instead |
 |---|---|
-| Render manifests for a PR check | `task template ENV=<env>` |
+| Render manifests for a PR check | `task template:<env>` |
 | Test against the real dev/staging cluster | Push branch, let ArgoCD sync |
 | Run unit or integration tests | `task test` via language test runner |
 | Deploy to any cluster ArgoCD manages | Commit + ArgoCD sync |

@@ -11,20 +11,26 @@ strategy:
     env: [dev, prod]
 ```
 
-## .argo/ diff check
+## Render check
 
-ArgoCD reads from `.argo/<env>/` — if the rendered output isn't committed, what's running in the cluster differs from what's in git. Add after `task template:<env>`:
+`.argo/` is a gitignored build artifact — ArgoCD renders `deploy/charts/<app>` itself via the
+ApplicationSet's `helm.valueFiles` (see the `argo-applicationset` skill). So there is nothing
+to compare against a committed copy; the job's value is proving the chart *renders* for every
+environment before merge, and handing the output to `kubescape`.
 
 ```yaml
-- name: Verify rendered output is committed
+- run: task template:${{ matrix.env }}
+- name: Verify the render produced manifests
   run: |
-    if ! git diff --quiet .argo/${{ matrix.env }}/; then
-      echo "::error::Rendered output in .argo/${{ matrix.env }}/ differs from committed version."
-      echo "Run 'task template:${{ matrix.env }}' locally and commit the result."
-      git diff --stat .argo/${{ matrix.env }}/
+    if [ -z "$(find .argo/${{ matrix.env }} -name '*.yaml' -print -quit 2>/dev/null)" ]; then
+      echo "::error::task template:${{ matrix.env }} produced no manifests."
       exit 1
     fi
 ```
+
+> Do **not** gate on `git diff .argo/`. `git diff` only reports modifications to *tracked*
+> files, so freshly rendered files are invisible to it, and on a gitignored path the check
+> passes unconditionally — it reads as a guarantee while asserting nothing.
 
 ## Third-axis matrix (when applicable)
 
@@ -36,7 +42,7 @@ matrix:
   chain: [variant1, variant2]
 
 steps:
-  - run: devbox run task template:${{ matrix.env }} CHAIN=${{ matrix.chain }}
+  - run: task template:${{ matrix.env }} CHAIN=${{ matrix.chain }}
 ```
 
 ## Canonical Kubernetes ci.yaml
@@ -65,11 +71,13 @@ jobs:
       matrix:
         env: [dev, prod]
     steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
+      - uses: actions/checkout@<sha>          # v4.2.2
         with:
-          enable-cache: true
-      - run: devbox run task lint:${{ matrix.env }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tools
+        with:
+          helm: "true"
+      - run: task lint:${{ matrix.env }}
 
   template-charts:
     name: template (${{ matrix.env }})
@@ -79,17 +87,17 @@ jobs:
       matrix:
         env: [dev, prod]
     steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
+      - uses: actions/checkout@<sha>          # v4.2.2
         with:
-          enable-cache: true
-      - run: devbox run task template:${{ matrix.env }}
-      - name: Verify rendered output is committed
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tools
+        with:
+          helm: "true"
+      - run: task template:${{ matrix.env }}
+      - name: Verify the render produced manifests
         run: |
-          if ! git diff --quiet .argo/${{ matrix.env }}/; then
-            echo "::error::Rendered output in .argo/${{ matrix.env }}/ differs."
-            echo "Run 'task template:${{ matrix.env }}' and commit."
-            git diff --stat .argo/${{ matrix.env }}/
+          if [ -z "$(find .argo/${{ matrix.env }} -name '*.yaml' -print -quit 2>/dev/null)" ]; then
+            echo "::error::task template:${{ matrix.env }} produced no manifests."
             exit 1
           fi
 
@@ -101,21 +109,25 @@ jobs:
       matrix:
         env: [dev, prod]
     steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
+      - uses: actions/checkout@<sha>          # v4.2.2
         with:
-          enable-cache: true
-      - run: devbox run task audit:${{ matrix.env }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tools
+        with:
+          helm: "true"
+          kubeconform: "true"
+          kubescape: "true"
+      - run: task audit:${{ matrix.env }}
 
   test:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
+      - uses: actions/checkout@<sha>          # v4.2.2
         with:
-          enable-cache: true
-      - run: devbox run task test
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tools
+      - run: task test
 ```
 
 ## Branch protection
@@ -127,5 +139,5 @@ Require all matrix job names as separate required checks: `lint (dev)`, `lint (p
 | Failure | Cause |
 |---|---|
 | `lint failed` on one chart | Missing required value in `defaults/values.yaml` |
-| `.argo/ diff` fails | Chart changed without running `task template:<env>` before commit |
+| render check finds no manifests | Every chart failed to template, or `CHARTS_DIR` doesn't match the repo layout |
 | `audit` fails with kubescape findings | Fix the manifest or add to `.kubescape/exceptions.json` with a `reason` |

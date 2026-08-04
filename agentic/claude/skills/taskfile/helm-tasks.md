@@ -7,6 +7,10 @@ Load this when the repo deploys Helm charts (a `deploy/charts/` directory exists
 | Variable | Effect |
 |---|---|
 | `CHART_NAME=foo` | Process only `deploy/charts/foo`, not all charts. |
+| `VARIANT=bar` | Append the third-axis overlay `<env>/bar.yaml` when it exists. Name the variable after the axis if that reads better in your repo (`CHAIN`, `REGION`, `TENANT`) — just keep it consistent with the ApplicationSet's variant key and the CI matrix. |
+
+These are `KEY=VALUE` variables, deliberately *not* extra `:` suffixes — the `action:env`
+suffix is reserved for the environment axis alone (see `SKILL.md`).
 
 ## Task naming
 
@@ -22,7 +26,7 @@ task audit:dev        # dev only
 
 ## Output directories
 
-Rendered output is split by environment to support committing both:
+Rendered output is split by environment so each can be audited independently:
 
 ```
 .argo/
@@ -32,7 +36,12 @@ Rendered output is split by environment to support committing both:
     └── <chart>/      # output of task template:prod
 ```
 
-ArgoCD reads from these paths; committing the rendered output is intentional.
+**`.argo/` is a build artifact and is gitignored.** ArgoCD does *not* read it — the
+ApplicationSet points at `deploy/charts/<app>` and renders the chart itself via
+`helm.valueFiles` (see the `argo-applicationset` skill). This directory exists so you and
+CI can eyeball and `kubescape`-scan exactly what the cluster will get, using the same
+values layering ArgoCD applies. Treat a diff here as a review aid, never as the
+deployment mechanism.
 
 ## Canonical Helm Taskfile.yaml
 
@@ -63,23 +72,26 @@ tasks:
     desc: Template all charts for dev
     vars:
       CHART_NAME: '{{.CHART_NAME | default ""}}'
+      VARIANT: '{{.VARIANT | default ""}}'
     cmds:
       - task: _template
-        vars: { ENV: dev, CHART_NAME: "{{.CHART_NAME}}" }
+        vars: { ENV: dev, CHART_NAME: "{{.CHART_NAME}}", VARIANT: "{{.VARIANT}}" }
 
   template:prod:
     desc: Template all charts for prod
     vars:
       CHART_NAME: '{{.CHART_NAME | default ""}}'
+      VARIANT: '{{.VARIANT | default ""}}'
     cmds:
       - task: _template
-        vars: { ENV: prod, CHART_NAME: "{{.CHART_NAME}}" }
+        vars: { ENV: prod, CHART_NAME: "{{.CHART_NAME}}", VARIANT: "{{.VARIANT}}" }
 
   _template:
     internal: true
     vars:
       ENV: '{{.ENV}}'
       CHART_NAME: '{{.CHART_NAME | default ""}}'
+      VARIANT: '{{.VARIANT | default ""}}'
     cmds:
       - task: clean
         vars: { ENV: "{{.ENV}}" }
@@ -87,6 +99,7 @@ tasks:
         vars:
           ENV: "{{.ENV}}"
           CHART_NAME: "{{.CHART_NAME}}"
+          VARIANT: "{{.VARIANT}}"
           MODE: template
 
   # ── Lint ─────────────────────────────────────────────────────────────────
@@ -101,17 +114,19 @@ tasks:
     desc: Lint all charts for dev
     vars:
       CHART_NAME: '{{.CHART_NAME | default ""}}'
+      VARIANT: '{{.VARIANT | default ""}}'
     cmds:
       - task: _process-charts
-        vars: { ENV: dev, CHART_NAME: "{{.CHART_NAME}}", MODE: lint }
+        vars: { ENV: dev, CHART_NAME: "{{.CHART_NAME}}", VARIANT: "{{.VARIANT}}", MODE: lint }
 
   lint:prod:
     desc: Lint all charts for prod
     vars:
       CHART_NAME: '{{.CHART_NAME | default ""}}'
+      VARIANT: '{{.VARIANT | default ""}}'
     cmds:
       - task: _process-charts
-        vars: { ENV: prod, CHART_NAME: "{{.CHART_NAME}}", MODE: lint }
+        vars: { ENV: prod, CHART_NAME: "{{.CHART_NAME}}", VARIANT: "{{.VARIANT}}", MODE: lint }
 
   # ── Audit ────────────────────────────────────────────────────────────────
 
@@ -153,6 +168,7 @@ tasks:
     vars:
       ENV: '{{.ENV | default ""}}'
       CHART_NAME: '{{.CHART_NAME | default ""}}'
+      VARIANT: '{{.VARIANT | default ""}}'
       MODE: '{{.MODE | default "template"}}'
     cmds:
       - |
@@ -168,21 +184,36 @@ tasks:
           [ ! -d "$CHART_PATH" ] && echo "  $CHART_PATH not found, skipping" && continue
           [ ! -f "$CHART_PATH/Chart.yaml" ] && echo "  No Chart.yaml in $CHART_PATH, skipping" && continue
 
+          # Layer order must match the ApplicationSet and skaffold exactly:
+          #   values.yaml -> defaults/ -> <env>/ -> <env>/<variant>
+          # Each path is emitted by go-task template substitution, then existence-tested.
+          # Do NOT gate these on a shell ${ENV:+...} — ENV is a task `vars:` entry, not an
+          # exported env var, so it is empty in the shell and the env layer silently vanishes.
           VALUES_ARGS=""
           for f in \
             "$CHART_PATH/values.yaml" \
             "$CHART_PATH/defaults/values.yaml" \
-            "${ENV:+$CHART_PATH/{{.ENV}}/values.yaml}" \
+            "$CHART_PATH/{{.ENV}}/values.yaml" \
+            "$CHART_PATH/{{.ENV}}/{{.VARIANT}}.yaml" \
           ; do
-            [ -n "$f" ] && [ -f "$f" ] && VALUES_ARGS="$VALUES_ARGS -f $f"
+            [ -f "$f" ] && VALUES_ARGS="$VALUES_ARGS -f $f"
           done
+
+          # A missing env layer is tolerated (the ApplicationSet sets
+          # ignoreMissingValueFiles: true, so ArgoCD behaves the same way) — but say so
+          # out loud. The original failure mode here was dropping it silently.
+          if [ -n "{{.ENV}}" ] && [ ! -f "$CHART_PATH/{{.ENV}}/values.yaml" ]; then
+            echo "  ! $chart: no {{.ENV}}/values.yaml — rendering base+defaults only"
+          fi
 
           helm lint $CHART_PATH $VALUES_ARGS
 
           if [ "{{.MODE}}" = "template" ]; then
-            OUTPUT_PATH="{{.OUTPUT_DIR}}/{{.ENV}}/$chart"
-            mkdir -p "$OUTPUT_PATH"
-            helm template $chart $CHART_PATH $VALUES_ARGS --output-dir "$OUTPUT_PATH"
+            # helm creates the <chart>/ subdirectory itself, so point --output-dir at the
+            # env directory. Passing .../$chart here would nest it twice.
+            mkdir -p "{{.OUTPUT_DIR}}/{{.ENV}}"
+            helm template $chart $CHART_PATH $VALUES_ARGS \
+              --output-dir "{{.OUTPUT_DIR}}/{{.ENV}}"
           fi
         done
 

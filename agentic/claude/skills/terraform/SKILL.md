@@ -1,6 +1,6 @@
 ---
 name: terraform
-description: Use whenever the user is working with Terraform or HashiCorp Configuration Language (HCL), or asks broadly about "infrastructure", observability strategy, disaster recovery, or cost optimization. Triggers on terraform, .tf files, .tfvars, HCL, "infrastructure as code", "infra", devbox+terraform, or Taskfiles for IaC. IMPORTANT: this skill operates in plan/validate/review mode only — it never applies infrastructure changes.
+description: 'Use whenever the user is working with Terraform or HashiCorp Configuration Language (HCL), or asks broadly about "infrastructure", observability strategy, disaster recovery, or cost optimization. Triggers on terraform, .tf files, .tfvars, HCL, "infrastructure as code", "infra", devbox+terraform, or Taskfiles for IaC. IMPORTANT: this skill operates in plan/validate/review mode only — it never applies infrastructure changes.'
 user-invocable: true
 requires: [devbox, taskfile]
 ---
@@ -24,16 +24,16 @@ Also load `github-actions` when the task involves CI/CD setup, and `document` wh
 
 Allowed (when a working environment is available):
 
-- ✅ `task fmt`, `task validate`, `task lint`, `task check`
-- ✅ `task <env>:plan` (read-only — generates a plan file, makes no changes)
+- ✅ `task fmt`, `task validate`, `task lint`, `task scan`, `task audit`, `task check`
+- ✅ `task plan:<env>` (read-only — generates a plan file, makes no changes)
 - ✅ `terraform init` (downloads providers, configures backend; does not change resources)
 - ✅ `terraform state list` and `terraform state show` (read-only inspection)
 - ✅ `terraform fmt`, `terraform validate` (read-only)
 
 Forbidden — refuse and explain:
 
-- ❌ `task <env>:apply` / `terraform apply`
-- ❌ `task <env>:destroy` / `terraform destroy`
+- ❌ `task apply:<env>` / `terraform apply`
+- ❌ `task destroy:<env>` / `terraform destroy`
 - ❌ `terraform import` / `import {}` block executions
 - ❌ `terraform state mv`, `terraform state rm`, `terraform state push`
 - ❌ `terraform force-unlock`
@@ -53,24 +53,21 @@ This boundary applies even when the user has connected credentials, even when th
 2. **Tool versions live in `devbox.json`.** No "works on my machine."
 3. **Documentation is mandatory, not optional.** Every project has `docs/ARCHITECTURE.md` with embedded Mermaid diagrams; every module has its own `README.md`.
 4. **State is remote, locked, encrypted, and separated per environment.**
-5. **Secrets flow through a secrets backend, never through Terraform state as the source of truth.** Vault and AWS Secrets Manager are the supported backends. Generated secrets are persisted back to the backend in the same module. Consumers read from the backend, never from `terraform output`. See `references/secrets.md`.
+5. **Secrets flow through a secrets backend, never through Terraform state as the source of truth.** Vault and AWS Secrets Manager are the supported backends. Generated secrets are persisted back to the backend in the same module. Consumers read from the backend, never from `terraform output`. See **Secrets** below.
 
 ## When to use this skill — quick decision
 
 | User is doing… | Action |
 |----------------|--------|
-| Starting a new Terraform project | Scaffold using the templates in `assets/templates/` and `assets/ci/`; produce the full directory structure below |
-| Adding/editing a module | Read `references/module-design.md`; ensure module README is updated |
-| Working with state (import, mv, rm, locking issues) | Read `references/state-management.md` |
-| Writing or fixing a Taskfile | Use `assets/templates/Taskfile.yml` as the baseline; also read the shared `taskfile` skill for conventions |
-| Writing or fixing devbox.json or .envrc | Use `assets/templates/devbox.json` as the baseline; also read the shared `devbox` skill |
-| Setting up GitHub Actions or pre-commit | Read the shared `github-actions` skill + `references/ci-cd.md` and use files from `assets/ci/` |
-| Debugging a plan/apply failure | Read `references/troubleshooting.md` |
-| Reviewing existing Terraform code | Use `references/review-checklist.md` |
-| Running an audit / triaging `task audit` findings | Read `references/audit-triage.md` — Claude reads JSON, triages, proposes fixes |
-| Anything involving secrets, credentials, passwords, API keys, tokens | **Read `references/secrets.md` first** — has hard rules about consume/persist patterns |
+| Starting a new Terraform project | Copy the asset files listed below; produce the full directory structure that follows |
+| Adding/editing a module | Apply "Variable and module design" below; ensure the module README is updated |
+| Writing or fixing a Taskfile | Use this skill's `Taskfile.yml` as the baseline; also read the shared `taskfile` skill for conventions |
+| Writing or fixing devbox.json or .envrc | Use this skill's `devbox.json` as the baseline; also read the shared `devbox` skill |
+| Setting up GitHub Actions or pre-commit | Read the shared `github-actions` skill; use this skill's `github-actions.yml` and `.pre-commit-config.yaml` |
+| Running an audit / triaging `task audit` findings | Read `audit-triage.md` — Claude reads JSON, triages, proposes fixes |
+| Anything involving secrets, credentials, passwords, API keys, tokens | Apply the **Secrets** section below — it has hard rules about consume/persist patterns |
 
-If a task spans multiple categories (e.g. "scaffold a new project with CI"), read the relevant references in the order above.
+If a task spans multiple categories (e.g. "scaffold a new project with CI"), work through them in the order above.
 
 ## Required project structure
 
@@ -176,12 +173,12 @@ task plan             # Plan all environments            ← Claude can run this
 Claude's role in this workflow:
 
 1. Write and edit the `.tf` code.
-2. Run `task check` and `task <env>:plan` to validate.
+2. Run `task check` and `task plan:<env>` to validate.
 3. Present the plan output to the user with analysis: what will change, what looks risky, what to double-check.
-4. **Offer `task audit`** at the end of substantial work — see `references/audit-triage.md`. The audit is a deterministic scanner run (`tflint` + `tfsec`); Claude reads the JSON output and helps triage findings.
-5. **Stop there.** The user runs `task <env>:apply` themselves.
+4. **Offer `task audit`** at the end of substantial work — see `audit-triage.md`. The audit is a deterministic scanner run (`tflint` + `tfsec`); Claude reads the JSON output and helps triage findings.
+5. **Stop there.** The user runs `task apply:<env>` themselves.
 
-Never suggest or execute `task <env>:apply`. Even when asked. Even with `-auto-approve`. Even in dev. The user is the only one who applies.
+Never suggest or execute `task apply:<env>`. Even when asked. Even with `-auto-approve`. Even in dev. The user is the only one who applies.
 
 Raw `terraform` commands are acceptable only for the read-only operations listed in the operational boundary section above.
 
@@ -193,7 +190,8 @@ Raw `terraform` commands are acceptable only for the read-only operations listed
 - **No defaults for environment-specific values.** Put them in `vars/<env>.hcl`.
 - **Module interface = variables in, outputs out.** No side channels, no reading remote state from inside a leaf module.
 
-For deeper guidance (composition patterns, `for_each` vs `count`, dynamic blocks, lifecycle rules), read `references/module-design.md`.
+- **`for_each` over `count`** for anything whose identity should survive a neighbour being added or removed — `count` re-indexes and destroys/recreates. `count` is fine for a genuine on/off toggle (`count = var.enabled ? 1 : 0`).
+- **`dynamic` blocks sparingly.** One or two for a genuinely variable-length nested block is fine; a module built out of them is unreadable — reconsider the interface instead.
 
 ## Documentation
 
@@ -204,12 +202,12 @@ Terraform-specific additions on top of the standard doc set:
 - **`modules/*/README.md`** — run `task docs` (terraform-docs) if the Taskfile has it; otherwise generate manually with inputs/outputs tables.
 - **`docs/ARCHITECTURE.md`** extra sections: remote-state dependency table (which repos this reads from and what outputs it uses), environment differences table (what changes between dev/staging/prod), state management section (backend, locking strategy).
 
-A template for `ARCHITECTURE.md` lives in `assets/templates/ARCHITECTURE.md`.
+The `document` skill owns the `ARCHITECTURE.md` structure and Mermaid conventions — follow it rather than a Terraform-specific template.
 
 ## Hard rules
 
 - ❌ Never apply, destroy, import, or perform state surgery — see the operational boundary above
-- ❌ Never put literal secret values in `.tf`, `.tfvars`, `.hcl`, or any version-controlled file — secrets come from Vault or AWS Secrets Manager (see `references/secrets.md`)
+- ❌ Never put literal secret values in `.tf`, `.tfvars`, `.hcl`, or any version-controlled file — secrets come from Vault or AWS Secrets Manager (see **Secrets** above)
 - ❌ Never use `terraform output` as the canonical way to retrieve a secret value — generated secrets are persisted back to the secrets backend in the same module
 - ❌ Never produce a project without `devbox.json` and `Taskfile.yml`
 - ❌ Never produce architecture documentation as a binary image file (`.png`, `.drawio`) — use embedded Mermaid or SVG
@@ -222,29 +220,73 @@ A template for `ARCHITECTURE.md` lives in `assets/templates/ARCHITECTURE.md`.
 - ✅ Always read shared infrastructure (network, IAM, etc.) via `data "terraform_remote_state"` rather than duplicating definitions
 - ✅ Always pair secret generation (e.g. `random_password`) with persistence to a secrets backend in the same module — output only the ARN/path, never the value
 
-## Reference files
+## Secrets
 
-Read these on demand — they are not loaded by default:
+The **`secrets` skill owns the cross-platform contract** — Vault path conventions, the three source modes, and how a credential reaches a container. This section is the Terraform-side implementation of it; read that skill first when a task spans both.
 
-- `references/module-design.md` — module composition, `for_each`/`count`/`dynamic`, lifecycle, locals, data sources
-- `references/state-management.md` — backends, locking, state surgery, workspaces vs separate states
-- `references/secrets.md` — Vault and AWS Secrets Manager patterns, generated secrets, ephemeral resources, rotation
-- `references/audit-triage.md` — how to read `task audit` JSON output and help fix findings
-- `references/ci-cd.md` — GitHub Actions and pre-commit hooks; all going through `devbox run task …`
-- `references/troubleshooting.md` — plan/apply/state failures, debug logging, recovery procedures
-- `references/review-checklist.md` — what to check when reviewing someone else's Terraform
+Hard rules. These apply to every task that touches a credential, password, key, or token.
+
+**Never a literal in version control.** No secret values in `.tf`, `.tfvars`, `.hcl`, or any committed file. `backend-*.hcl` and `vars/*.hcl` are committed precisely because they hold no secrets — keep it that way.
+
+**Consume: read from the backend at plan time.** Reference the secret, don't copy it.
+
+```hcl
+data "aws_secretsmanager_secret_version" "db" {
+  secret_id = "prod/payments/db"          # the backend is the source of truth
+}
+
+# Vault equivalent
+data "vault_kv_secret_v2" "db" {
+  mount = "secret"                        # per the `secrets` skill: secret/<app>/<env>
+  name  = "payments/prod"
+}
+```
+
+**Persist: a generated secret is written back to the backend in the same module.** Generating a password and only emitting it as an output makes state the source of truth — that's the failure mode. Generate and persist together:
+
+```hcl
+resource "random_password" "db" {
+  length  = 32
+  special = true
+}
+
+resource "aws_secretsmanager_secret" "db" {
+  name = "prod/payments/db"
+}
+
+resource "aws_secretsmanager_secret_version" "db" {
+  secret_id     = aws_secretsmanager_secret.db.id
+  secret_string = random_password.db.result
+}
+
+output "db_secret_arn" {
+  description = "Where consumers fetch the credential. The value is never output."
+  value       = aws_secretsmanager_secret.db.arn      # the ARN/path, never the secret
+}
+```
+
+**Never `terraform output` as the retrieval path.** Consumers read the backend using the ARN/path. An output carrying a secret value ends up in CI logs, state, and anyone's shell history.
+
+**State is sensitive regardless.** `random_password.result` and any `data` secret land in state in plaintext — so the backend must be encrypted (SSE-KMS) and its read access must be as tight as the secret itself. Mark every secret-adjacent output `sensitive = true`; that hides it from CLI output but *not* from state.
+
+**Prefer dynamic over static.** Vault dynamic credentials (database, cloud STS) expire on their own, so a leak has a bounded blast radius. Reach for static KV only when nothing dynamic exists.
+
+**Rotation is a backend concern, not a Terraform run.** Wire up the backend's native rotation (Secrets Manager rotation Lambda, Vault TTLs). Don't build rotation as "re-run `apply` to regenerate" — that couples credential lifetime to your deploy cadence.
+
+**Local dev reads the same paths.** Developer shells pull from the same Vault paths the workload reads in-cluster (see the `devbox` skill's `init_hook` and the `helm` skill's credential blocks), so dev and prod resolve identical keys.
 
 ## Asset files (copy these into the user's project)
 
-- `assets/templates/devbox.json` — pinned tool versions
-- `assets/templates/Taskfile.yml` — full standard task set
-- `assets/templates/.gitignore` — gitignore covering Terraform, audit, plan artifacts
-- `assets/templates/ARCHITECTURE.md` — architecture doc template with Mermaid examples
-- `assets/templates/module-README.md` — module README template
-- `assets/templates/.pre-commit-config.yaml` — pre-commit hooks
-- `assets/ci/github-actions.yml` — GitHub Actions workflow
+These live alongside this `SKILL.md` in the skill directory:
 
-When scaffolding, copy these verbatim and fill in the project-specific bits (project name, providers, regions). Don't rewrite them from scratch.
+- `devbox.json` — pinned tool versions
+- `Taskfile.yml` — full standard task set
+- `.gitignore` — covers Terraform, audit, and plan artifacts
+- `.pre-commit-config.yaml` — pre-commit hooks
+- `github-actions.yml` — GitHub Actions workflow
+- `audit-triage.md` — not a template; read it when triaging `task audit` output
+
+When scaffolding, copy the first five verbatim and fill in the project-specific bits (project name, providers, regions). Don't rewrite them from scratch. For `README.md`, `docs/ARCHITECTURE.md`, and `modules/*/README.md`, the `document` skill owns the structure — see **Documentation** above for the Terraform-specific sections to add.
 
 ## Observability
 

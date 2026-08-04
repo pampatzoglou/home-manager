@@ -179,6 +179,8 @@ vault:
   role: ""                   # Vault role — must have bound_service_account_names + bound_service_account_namespaces set
 ```
 
+The **`secrets` skill owns this contract** — the three source modes below, the Vault path convention, the `/var/run/secrets/<block>/<key>` mount path, and the `*_FILE` env naming that `docker-compose` must match exactly. Read it before adding or changing a credential block; the templates that implement it are in `postgres.md` and `kafka.md`.
+
 Each top-level resource block maps 1:1 to a credential source:
 
 | Mode | Activated by | What renders |
@@ -191,7 +193,9 @@ See `postgres.md` for the full database template chain and `kafka.md` for Kafka 
 
 ### Commented-out recommended values
 
-Features are off by default but include the recommended production shape as comments. This serves as both documentation and a copy-paste starting point for env overlays:
+Features are off by default but include the recommended production shape as comments. This serves as both documentation and a copy-paste starting point for env overlays.
+
+**This is a statement about the base layer only.** `resources: {}` in `values.yaml` is correct — the base chart has no way to know a workload's CPU/memory profile, and it must still render on a bare kind cluster. It is *not* correct in the rendered output: `defaults/values.yaml` or the env overlay must fill it in, and the `kubernetes` skill flags an empty `resources` in a rendered manifest as blocker-tier. Same field, two layers, two verdicts — check which layer you're looking at before calling it a finding.
 
 ```yaml
 resources: {}
@@ -310,7 +314,10 @@ Cover required keys and any key whose type is easy to get wrong. You don't need 
 
 ## _helpers.tpl
 
-Every chart defines at minimum these five helpers:
+Every chart defines at minimum these **seven** helpers. The last two carry the
+`app.kubernetes.io/component` label that `patterns.md` requires on every workload — they are
+not optional extras for multi-workload charts only. Label even a single-workload chart, because
+adding a component label to a live Deployment's selector later forces a delete/recreate.
 
 ```gotmpl
 {{- define "my-chart.name" -}}
@@ -348,9 +355,28 @@ app.kubernetes.io/part-of: {{ .Values.partOf | default (include "my-chart.name" 
 app.kubernetes.io/name: {{ include "my-chart.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/* Component-scoped variants — use these in every workload and its dependent objects.
+     Call as: (dict "root" . "component" "server") */}}
+{{- define "my-chart.componentLabels" -}}
+{{ include "my-chart.labels" .root }}
+app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+
+{{- define "my-chart.componentSelectorLabels" -}}
+{{ include "my-chart.selectorLabels" .root }}
+app.kubernetes.io/component: {{ .component }}
+{{- end -}}
 ```
 
 **Selector labels must not include version.** Selectors on Deployments and StatefulSets are immutable — baking the version in means you can't upgrade without deleting and recreating the workload.
+
+**Which helper goes where.** `componentLabels` on `metadata.labels` and the pod template;
+`componentSelectorLabels` in `spec.selector.matchLabels` for Deployments and StatefulSets, and
+in the selector of every Service/PDB/ServiceMonitor/NetworkPolicy that targets that workload.
+Jobs and CronJobs get `componentLabels` only — they generate their own controller-owned
+selector and overriding it is unsupported. Full rules and rationale in `patterns.md`,
+*Component label — required on every workload*.
 
 Add a `serviceAccountName` helper when the chart creates a ServiceAccount:
 
@@ -482,9 +508,12 @@ Include `README.md` in `.helmignore` — it's for humans reading the repo, not f
 - [ ] Values grouped by resource boundary — each block maps to one Secret / one set of env vars
 - [ ] Every knob has a default; recommended production shapes are commented out
 - [ ] Feature sections use `enabled: false` guard pattern
-- [ ] `_helpers.tpl` defines name, fullname, chart, labels, selectorLabels
+- [ ] `_helpers.tpl` defines name, fullname, chart, labels, selectorLabels, componentLabels, componentSelectorLabels
 - [ ] Common labels include `app.kubernetes.io/part-of` (in the labels helper, not selectorLabels)
+- [ ] Every workload carries a unique `app.kubernetes.io/component`; Deployments/StatefulSets have it in the selector, Jobs/CronJobs in labels only
+- [ ] Dependent objects (Service, PDB, ServiceMonitor, NetworkPolicy) select on the same component label as the workload they target
 - [ ] Selector labels don't include version
+- [ ] No bare-key label duplicating an `app.kubernetes.io/*` key (see the `tagging` skill)
 - [ ] `serviceAccount.automount` defaults to `false`
 - [ ] `extraObjects: []` present for charts reused across teams
 - [ ] All scheduling fields present in templates: nodeSelector, affinity, tolerations, topologySpreadConstraints, priorityClassName

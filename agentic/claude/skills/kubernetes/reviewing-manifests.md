@@ -2,6 +2,12 @@
 
 Use when the user asks to review, audit, or sanity-check existing YAML — Helm chart, raw manifest, or the rendered output of `helm template`.
 
+## Review the rendered output, not the base values
+
+Run this checklist against **rendered manifests** (`task template:<env>`, or `helm template` with the full values layering), not against a chart's base `values.yaml`. The `helm` skill deliberately ships base defaults that are empty or off — `resources: {}`, `autoscaling.enabled: false`, `pdb.enabled: false`, commented-out production shapes — so the chart stays deployable on a bare kind cluster. Judging those as findings means reporting the chart's design as a defect, and it's the most common false positive here.
+
+What that means per item: a value is a finding when it's still absent **after** `values.yaml → defaults/ → <env>/` have all been applied. If something is missing, name the layer it should be set in — usually `defaults/values.yaml` for operational baselines, `<env>/values.yaml` for anything that legitimately differs per environment.
+
 ## How to structure feedback
 
 1. **Lead with blockers.** Things that are unsafe, will lose data, or will break under load. Group them together at the top.
@@ -25,10 +31,11 @@ Walk this for each workload resource. Pull in `resource-standards.md` for the ac
 - [ ] No literal credentials in `env`, `data`, or anywhere else — Secrets come from ExternalSecrets
 
 ### Resources — blocker tier
-- [ ] Every container (including init and sidecars) has both `requests` and `limits`
+- [ ] Every container (including init and sidecars) has `requests`, and a memory `limit`
 - [ ] Memory `limit` ≈ memory `request` (within ~25%)
+- [ ] A missing **CPU** limit is only a finding if it looks accidental — omitting it to avoid throttling is legitimate for latency-sensitive services; ask rather than assert
 - [ ] CPU request is realistic — not `1m` for a real workload, not `4` for a stub
-- [ ] No `resources: {}` anywhere
+- [ ] No `resources: {}` in the **rendered** manifest (in a base `values.yaml` it's the expected default — see above)
 
 ### Image hygiene — blocker tier
 - [ ] No `:latest` tag in committed manifests
@@ -59,9 +66,11 @@ Walk this for each workload resource. Pull in `resource-standards.md` for the ac
 - [ ] DNS records are managed by `external-dns` annotations, not commit-and-forget A records
 
 ### Labels and selectors
-- [ ] Recommended labels (`app.kubernetes.io/name`, `instance`, `version`, `component`, `part-of`, `managed-by`) are present
+- [ ] Recommended labels (`app.kubernetes.io/name`, `instance`, `version`, `component`, `part-of`, `managed-by`) are present — produced by the chart's labels helper, not hand-written per template (the `helm` skill owns the helper)
+- [ ] Every workload has a unique `app.kubernetes.io/component`; dependent Services/PDBs/Monitors select on the same value
 - [ ] `spec.selector.matchLabels` is a subset of `metadata.labels`
 - [ ] No version-label in `selector` (selectors are immutable)
+- [ ] No bare-key label duplicating an `app.kubernetes.io/*` key — one vocabulary (the `tagging` skill owns the boundary)
 
 ### GitOps integration
 - [ ] No `kubectl apply` instructions in the README that should go through ArgoCD/Flux

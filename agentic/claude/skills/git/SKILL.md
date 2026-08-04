@@ -1,6 +1,6 @@
 ---
 name: git
-description: Git workflow helper — crafts Conventional Commit messages and PR overview descriptions. For commits: analyses staged diff, picks the right type/scope, presents a pre-filled git commit command for the user to confirm. For PRs: writes a concise overview description (not a changelog) from the branch diff.
+description: 'Git workflow helper — crafts Conventional Commit messages and PR overview descriptions. For commits: analyses staged diff, picks the right type/scope, presents a pre-filled git commit command for the user to confirm. For PRs: writes a concise overview description (not a changelog) from the branch diff.'
 user-invocable: true
 ---
 

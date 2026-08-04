@@ -1,6 +1,6 @@
 ---
 name: taskfile
-description: Standard Taskfile conventions across all projects. Covers the core principle (CI calls tasks not inline commands), standard task naming, variables pattern, and CI integration via devbox.
+description: 'Standard Taskfile conventions across all projects. Covers the core principle (CI calls tasks not inline commands), standard task naming, the action:env convention, the variables pattern, and CI integration.'
 user-invocable: true
 ---
 
@@ -17,7 +17,7 @@ CI must call project tasks, not contain inline command logic:
 - run: helm lint ./charts && kubescape scan framework nsa .argo/
 
 # GOOD — CI delegates to project automation
-- run: devbox run task audit ENV=dev
+- run: task audit:dev
 ```
 
 Benefits: local/CI parity, portability across CI platforms, single source of truth for how things run.
@@ -40,6 +40,13 @@ Use these names consistently so developers don't re-learn per repo:
 | `docs` | Regenerate documentation |
 
 Domain-specific tasks extend this set (e.g., `template`/`plan`/`apply` for Helm and Terraform).
+
+**`audit` is always "the full pre-merge gate" — what it composes is domain-specific.** The
+generic shape is fmt → validate → lint → scan; a Helm repo's `audit:<env>` renders the charts
+and runs `kubescape` (see `helm-tasks.md`), and a Terraform repo's runs `tflint` + `tfsec` to
+JSON. Keep the *name* and the *meaning* fixed so CI can always call `task audit` (or
+`audit:<env>`) without knowing the stack; let the body differ. `scan` stays the
+security-scanner step that `audit` calls, so it exists in every repo that has a scanner.
 
 ## Environment task naming convention
 
@@ -182,13 +189,15 @@ Use `deps:` when order doesn't matter and parallel execution is safe. Use sequen
 ## CI integration
 
 ```yaml
-- uses: jetify-com/devbox-install-action@v0.13.0
+- uses: ./.github/actions/setup-tools   # pinned tools; versions match devbox.json
   with:
-    enable-cache: true
-- run: devbox run task audit
+    helm: "true"
+- run: task audit
 ```
 
-See the `github-actions` skill for the full workflow structure.
+CI installs tools via pinned setup actions, not devbox — devbox is the developer environment.
+The task name is the contract either way: the same `task audit` runs on a laptop and on a
+runner. See the `github-actions` skill for the composite action and the version-parity check.
 
 ## Destructive tasks — always use `prompt:`
 
@@ -222,9 +231,11 @@ layout, the canonical Helm `Taskfile.yaml`, and kubescape configuration — live
 
 ## What not to add
 
-- **Per-environment task names** (`lint-dev:`, `lint-prod:`) — use variables for targeting.
+- **Hyphenated or reversed environment names** (`lint-dev:`, `dev:lint:`) — the environment is a `:`-suffixed axis, so it's `lint:dev`. This is the *only* axis that gets a suffix.
+- **A `:`-suffix for any other dimension** (`template:dev:api:`, `plan:dev:eu-west:`) — every dimension beyond the environment is a `KEY=VALUE` variable: `task template:dev CHART_NAME=api`. Suffixing them multiplies the task list combinatorially.
 - **Inline logic that belongs in the build system** — if `npm build` exists, call it; don't rewrite it in shell.
 - **Destructive tasks without `prompt:`** — see above.
+- **A bare all-envs variant of a destructive action** — no `destroy:`, no `apply:`.
 
 ## Companion skills — offer after completing
 

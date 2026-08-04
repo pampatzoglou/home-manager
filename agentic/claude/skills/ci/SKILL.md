@@ -1,6 +1,6 @@
 ---
 name: ci
-description: Generate CI workflows for a repository by analyzing its structure and asking about preferences, then writing GitHub Actions that delegate job logic to a Taskfile via devbox. Use when setting up or revising continuous integration, adding or editing .github/workflows/, wiring test/lint/build/release pipelines, or making CI call project tasks. Orchestrates the github-actions, taskfile, and devbox skills.
+description: 'Generate CI workflows for a repository by analyzing its structure and asking about preferences, then writing GitHub Actions that install pinned tools and delegate job logic to Taskfile tasks. Use when setting up or revising continuous integration, adding or editing .github/workflows/, wiring test/lint/build/release pipelines, or making CI call project tasks. Orchestrates the github-actions, taskfile, and devbox skills.'
 user-invocable: true
 requires: [github-actions, taskfile, devbox]
 ---
@@ -13,9 +13,9 @@ Generate appropriate CI workflows for the current project through an interactive
 
 Before generating any workflow, load these skills:
 
-- `github-actions` — core pattern (checkout + devbox + `devbox run task X`), security hardening, OIDC, matrix conventions, caching
+- `github-actions` — core pattern (checkout + `setup-tools` + `task X`), SHA pinning, security hardening, OIDC, matrix conventions
 - `taskfile` — `action:env` naming and standard task set the workflow will call
-- `devbox` — tool pinning and CI integration via `devbox-install-action`
+- `devbox` — the declared tool versions CI must match (CI itself does not run devbox)
 
 ## Instructions
 
@@ -49,12 +49,14 @@ CI workflows should call project automation, not contain inline command logic.
     jest --coverage --ci
     eslint src/ --format=stylish
 
-# ✅ GOOD - CI calls project automation
-- run: npm test
-- run: npm run lint
+# ✅ GOOD - CI calls the project's task, which calls the build system
+- run: task test
+- run: task lint
 ```
 
 **Why**: Local/CI parity, CI platform portability, easier debugging, single source of truth.
+
+The task is the seam, not the package manager. `task test` may well be a one-liner wrapping `npm test` — that's correct, and it means CI, the pre-commit hook, and a developer's shell all enter through the same door. Calling `npm test` directly from the workflow re-introduces the divergence one layer up: the `taskfile` skill owns this contract, and `task <name>` is the form every workflow step takes.
 
 **When project automation doesn't exist**, ask the user:
 
@@ -152,29 +154,18 @@ The workflow follows three phases:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Step 0: Determine CI Platform (BLOCKING GATE)
+### Step 0: Confirm the CI platform
 
-**CRITICAL**: This is a blocking gate. Ask about CI platform FIRST and ALONE. Do NOT ask any other questions or perform any analysis until the user confirms they want GitHub Actions.
+GitHub Actions is the supported platform — the `github-actions` skill carries the patterns and there is no equivalent for other providers.
 
-Ask the user which CI platform they use. Present ONLY these options:
+**Detect first, don't ask blind.** If `.github/workflows/` exists, or the remote is GitHub (`git remote -v`), that's the answer; note it in the Step 2 summary and move on. Only ask when detection is genuinely ambiguous (no remote, no existing CI).
 
-1. **GitHub Actions**
-2. **Other**
+**If the repo uses something else** (GitLab CI, CircleCI, Buildkite, Jenkins): say so plainly and stop generating. The `taskfile` and `devbox` skills still apply and are the portable part — the tasks CI calls are identical across providers, so offer to get `Taskfile.yaml` and `devbox.json` right and leave the provider glue to the user. Don't invent a workflow for a platform this skill has no patterns for.
 
-**If GitHub Actions** → Proceed to Step 1 (analysis)
-
-**If Other** → STOP. Ask which platform they use, then respond:
-
-```text
-[Platform] is not yet supported. Would you like me to open a feature
-request issue at https://github.com/dot-ai-app/dot-ai/issues so we
-can prioritize adding it?
-
-1. Yes, open a feature request
-2. No, I'll use a different approach
-```
-
-Then handle the user's response (create issue or end conversation). Do NOT proceed to repository analysis for unsupported platforms.
+> **When invoked from another skill** (`bootstrap` Phase 3, `housekeeping` Pass 5), Step 0 is
+> resolved by the caller — it already knows the repo is GitHub-based. Skip it and start at
+> Step 1, and fold the Step 2/3 questions into whatever the caller is already asking rather
+> than opening a second interactive gate mid-sweep.
 
 ### Step 1: Comprehensive Repository Analysis
 
@@ -282,7 +273,7 @@ Common choices include:
 - **Release Trigger**: What triggers a release build?
 - **Release Validation**: Should release workflow re-run checks that already passed in PR? (Re-run all = safest/slowest, Skip validation = fastest, Security scans only = compromise)
 - **Container Registry**: Where to push images? (if containerized)
-- **Environment Setup**: Native GitHub Actions or DevBox?
+- **Tooling**: which tools does the pipeline need installed, and are their versions already declared in `devbox.json`?
 - **Deployment Strategy**: GitOps, direct, or manual? (if deployed)
 
 Ask clarifying questions as needed:
@@ -323,7 +314,7 @@ Once the workflows are committed and passing, check the repo and offer whichever
 
 | Skill | Offer when |
 |-------|-----------|
-| `devbox` | No `devbox.json` in the repo root (CI assumes devbox — this is a blocker if missing) |
+| `devbox` | No `devbox.json` — it declares the versions the CI `setup-tools` action must match |
 | `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` in the repo root (CI calls tasks — this is a blocker if missing) |
 | `document` | No `docs/ARCHITECTURE.md`, or existing README doesn't describe the CI pipeline |
 
