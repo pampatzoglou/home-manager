@@ -32,7 +32,12 @@ Scan the target files or directories for mechanical inconsistencies that don't a
 - [ ] No template variables assigned but never rendered
 
 ### Hardcoded values
-- [ ] No hardcoded image tags (`:latest` or a pinned digest that should be a value)
+
+Templating hygiene only — a literal in a template that should have been a value. Whether the
+*value itself* is acceptable is the `kubernetes` skill's call (`:latest` is blocker-tier there);
+report the hardcoding, don't re-grade the severity.
+
+- [ ] No image tag literal in a template — it belongs in `values.yaml` as `image.tag`
 - [ ] No hardcoded namespace strings that should come from `.Release.Namespace`
 - [ ] No hardcoded replica counts that should be configurable values
 
@@ -68,7 +73,7 @@ Scan the target files or directories for mechanical inconsistencies that don't a
 ### Missing metadata
 - [ ] Every `variable` block has a `description`
 - [ ] Every `output` block has a `description`
-- [ ] Every resource that supports tags has a `tags` argument
+- [ ] Every resource that supports tags has a `tags` argument (the `tagging` skill owns *which* keys — flag the absence, not the contents)
 
 ### Structural consistency
 - [ ] Argument order within resource blocks is consistent (required args first, optional after)
@@ -109,6 +114,20 @@ Scan the target files or directories for mechanical inconsistencies that don't a
 
 - [ ] No CRLF line endings in a repo that uses LF
 - [ ] No BOM (byte-order mark) at file start
-- [ ] No TODO / FIXME comments older than the current sprint (flag for review)
-- [ ] No commented-out code blocks spanning more than 3 lines
 - [ ] No debug-only config values committed (`debug: true`, `log_level: trace`, etc.)
+
+## Not this skill's job
+
+`tidy` fixes formatting — whitespace, quoting, indentation, separators. **Removal is `prune`'s.**
+Two skills reporting one finding is how a repo gets a style fix and a deletion proposal for the
+same lines, and in a `housekeeping` sweep `tidy` runs first and auto-fixes, so it would delete
+content `prune` is required to only flag.
+
+Leave these to `prune` and don't report them here:
+
+- Commented-out code blocks
+- Stale or abandoned TODO / FIXME comments
+- Redundant docs, verbose comments, placeholder config values
+- Unreferenced values, unused helpers, orphaned or dead files
+
+If you spot one while tidying, mention it in one line and point at `prune` — don't act on it.

@@ -124,10 +124,10 @@ Prefer inline suppression to global config — the context is preserved next to 
 
 When a finding overlaps with a hard rule from this skill, point it out explicitly. Examples:
 
-- tfsec flagging plaintext password in code → links to `references/secrets.md` "no literal secret values"
-- tfsec flagging unencrypted state backend → links to the state-management hard rule
-- tflint flagging missing `description` on a variable → links to module-design's "every variable has a description" rule
-- tfsec flagging `0.0.0.0/0` ingress → links to the IAM/network hard rule
+- tfsec flagging plaintext password in code → links to SKILL.md's Secrets rule "never a literal in version control"
+- tfsec flagging unencrypted state backend → links to the hard rule on remote, encrypted, per-env state
+- tflint flagging missing `description` on a variable → links to the module-design rule "every variable gets a description"
+- tfsec flagging `0.0.0.0/0` ingress → links to the least-privilege networking rule
 
 This helps the user see the audit not as a separate ritual but as a confirmation of guidelines the skill has been pushing all along.
 
@@ -137,7 +137,7 @@ This helps the user see the audit not as a separate ritual but as a confirmation
 - ❌ **Do not invent findings** that aren't in the JSON output, even if you suspect them. If you suspect something tfsec missed, point it out as a *concern*, clearly distinguished from audit findings.
 - ❌ **Do not silently bulk-suppress** to make the audit pass. The point is to fix, not to mute.
 - ❌ **Do not mark a finding "fixed" without re-running** the audit. Patching code in chat doesn't update `audit-results/`.
-- ❌ **Do not apply fixes to live infrastructure.** Patching `.tf` is fine; running `task <env>:apply` is the user's job (operational boundary).
+- ❌ **Do not apply fixes to live infrastructure.** Patching `.tf` is fine; running `task apply:<env>` is the user's job (operational boundary).
 
 ## Reporting back to the user
 

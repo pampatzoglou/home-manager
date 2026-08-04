@@ -1,8 +1,8 @@
 ---
 name: housekeeping
-description: Stateful, idempotent repo sweep. Applies every companion skill in pass order (devbox → taskfile → helm → kubernetes → argo/skaffold → ci → tidy → prune → document) and iterates until the repo converges. Writes .housekeeping/state.yaml breadcrumbs so re-runs skip completed items.
+description: Stateful, idempotent repo sweep of a Kubernetes service repo. Applies companion skills in pass order (devbox/taskfile → dockerfile/compose → helm → kubernetes → argo/skaffold → github-actions → tidy → prune → document) and iterates until the repo converges. Writes .housekeeping/state.yaml breadcrumbs so re-runs skip completed items. Does not cover Terraform — run the terraform skill directly for IaC repos.
 user-invocable: true
-requires: [devbox, taskfile, helm, argo-applicationset, skaffold, kubernetes, dockerfile, github-actions, tidy, prune, document]
+requires: [devbox, taskfile, dockerfile, docker-compose, helm, argo-applicationset, skaffold, kubernetes, secrets, github-actions, tidy, prune, document]
 ---
 
 # Repo Housekeeping
@@ -18,9 +18,17 @@ Multi-pass, stateful sweep of a service repo. Each pass applies one companion sk
 | Skill | Responsibility |
 |---|---|
 | `housekeeping` | Orchestrator — runs companion skills in order, tracks state, iterates to convergence |
+| `bootstrap` | Creates a repo from nothing. Housekeeping converges an *existing* one — never scaffold a whole repo from here |
+| `platform-review` | Reviews a *diff* and reports. Housekeeping sweeps the whole tree and *fixes* |
 | `tidy` | Mechanical style drift — called as Pass 6 |
 | `prune` | Removal and dead code — called as Pass 7 |
 | `document` | Documentation generation — called as Pass 8 |
+| `terraform` | **Out of scope.** No pass covers `.tf` — invoke the `terraform` skill directly |
+
+**This skill holds no standards of its own.** Every rule belongs to the skill named in its
+pass. When a pass needs a criterion, load that skill and apply *its* checklist rather than
+restating it here — a copy here is a copy that drifts. The tables below are item inventories
+and auto-fix policy, not a second source of truth.
 
 Do not inline `tidy`, `prune`, or `document` logic here. Invoke each as its own pass with its own state entries.
 
@@ -142,10 +150,30 @@ Apply the full `devbox` skill completion checklist. All packages must be version
 | `p1.taskfile.tasks.cluster-reset` | `cluster:reset` present | Add |
 | `p1.taskfile.output-dir` | `.argo/` output directory convention used | Update if using a different path |
 | `p1.taskfile.values-layering` | `_template` task passes `values.yaml` → `defaults/values.yaml` → `<env>/values.yaml` in that order | Fix ordering |
-| `p1.taskfile.ci-integration` | CI workflow calls `devbox run task audit`, not inline helm commands | Flag only — CI is read-only for this pass |
+| `p1.taskfile.ci-integration` | CI workflow calls `task audit`, not inline helm commands | Flag only — CI is read-only for this pass |
 | `p1.taskfile.destructive-prompt` | Any destructive task (`destroy`, `db:drop`, `apply:prod`) has `prompt:` | Add `prompt:` where missing |
 
 Apply the full `taskfile` skill completion checklist. The `action:env` naming convention must be followed.
+
+#### 1c. Container build — load `dockerfile` and `docker-compose` skills
+
+Skip entirely if the repo builds no image (a chart-only platform repo). Otherwise apply each
+skill's own success criteria; the items below are the ones that cross into later passes.
+
+| Item | Check | Auto-fix |
+|---|---|---|
+| `p1.dockerfile.exists` | `Dockerfile` present when the repo has application source | Flag — generating one needs the `dockerfile` skill's full analysis, not a template |
+| `p1.dockerfile.stages` | Four named stages: `base`, `build`, `develop`, `production` | Flag — restructuring is not mechanical |
+| `p1.dockerfile.no-copy-all` | No `COPY . .` in any stage | Flag |
+| `p1.dockerfile.volumes-declared` | Every runtime-writable path declared with `VOLUME` | Flag — the path list comes from reading the app |
+| `p1.dockerfile.digest-pinned` | `production` base image pinned by digest | Flag — needs a registry lookup |
+| `p1.compose.target-develop` | `docker-compose.yaml` builds `target: develop`, not the default (production) stage | Set |
+| `p1.compose.hardening` | `read_only`, `tmpfs`, `cap_drop: [ALL]`, `no-new-privileges`, non-root `user:` on every service | Add |
+| `p1.compose.secrets-from-files` | No literal secret in `environment:`; `*_FILE` env pointing at the same `/var/run/secrets/<block>/<key>` path the chart mounts (`secrets` skill) | Fix a flat target; flag literals — never auto-write a secret |
+| `p1.uid.single-source` | The Dockerfile `USER` uid matches compose `user:` and the chart's `runAsUser`/`runAsGroup`/`fsGroup` | Align the *consumers* to the Dockerfile — it is the source of truth. Never change the Dockerfile to match a chart |
+
+`p1.uid.single-source` is the seam Pass 3's security items depend on. Resolve it here, before
+Pass 3 sets `runAsUser` in `defaults/values.yaml`, or the two passes will disagree.
 
 ---
 
@@ -251,11 +279,21 @@ Check only when `replicaCount >= 2` or `autoscaling.minReplicas >= 2`:
 
 #### Labels and selectors — `p3.k8s.<chart>.labels.*`
 
+The label set is **owned by the `helm` skill** (`_helpers.tpl` labels helper + `patterns.md`'s
+component-label rule) and checked by `kubernetes/reviewing-manifests.md`. Don't restate a
+partial list here — read those and apply theirs, so this pass can't drift from them.
+
 | Check suffix | Condition | Auto-fix |
 |---|---|---|
-| `recommended-labels` | `app.kubernetes.io/name`, `instance`, `managed-by` on all resources | Add via `_helpers.tpl` labels helper |
+| `recommended-labels` | The full set from `reviewing-manifests.md` is present: `name`, `instance`, `version`, `component`, `part-of`, `managed-by` | Add via the `_helpers.tpl` labels helper — never by hand-writing labels into a template |
+| `component-label` | Every workload carries a unique `app.kubernetes.io/component` per `helm/patterns.md` | Add via `componentLabels`; for Deployments/StatefulSets it must also be in the selector |
 | `selector-stable` | No version-y label in `spec.selector.matchLabels` | Remove version from selector |
 | `selector-subset-of-labels` | `matchLabels` is a subset of `metadata.labels` | Fix |
+| `no-competing-label-vocab` | No bare-key duplicate of an `app.kubernetes.io/*` key (`app:`, `service:` alongside them) — see the `tagging` skill's ownership boundary | Consolidate onto the standard keys |
+
+Adding a component label to an **existing** Deployment/StatefulSet selector forces a
+delete/recreate — selectors are immutable. If the workload is already live without one,
+mark the item `failed` and explain, rather than auto-fixing it.
 
 #### GitOps — `p3.k8s.<chart>.gitops.*`
 
@@ -318,7 +356,7 @@ Goal: every required file and folder for CI and GitOps delivery is present and f
 | `p5.ci.dirs.github-workflows` | `.github/workflows/` directory exists | Create |
 | `p5.ci.dirs.deploy-argo` | `deploy/argo/` directory exists | Create |
 | `p5.ci.dirs.deploy-charts` | `deploy/charts/` directory exists | Create |
-| `p5.ci.dirs.argo-output` | `.argo/` directory exists (rendered output for ArgoCD) | Create with `.gitkeep` |
+| `p5.ci.dirs.argo-output` | `.argo/` render target is gitignored, not committed | Add `.argo/` to `.gitignore`; no `.gitkeep` (the Taskfile creates it) |
 | `p5.ci.dirs.kubescape` | `.kubescape/` directory exists | Create |
 
 #### CI workflow files
@@ -327,13 +365,15 @@ Goal: every required file and folder for CI and GitOps delivery is present and f
 |---|---|---|
 | `p5.ci.workflow.ci-exists` | `.github/workflows/ci.yaml` (or `ci.yml`) present | Create from `github-actions` skill template |
 | `p5.ci.workflow.release-exists` | `.github/workflows/release.yaml` present | Create stub with image build trigger on tag push |
-| `p5.ci.workflow.calls-tasks` | Every `run:` step delegates to `devbox run task X`, no inline helm/kubectl | Flag inline commands for extraction to Taskfile |
-| `p5.ci.workflow.devbox-action` | Uses `jetify-com/devbox-install-action@v0.13.0` with `enable-cache: true` | Add |
+| `p5.ci.workflow.calls-tasks` | Every `run:` step delegates to `task X`, no inline helm/kubectl | Flag inline commands for extraction to Taskfile |
+| `p5.ci.setup-tools-action` | `.github/actions/setup-tools/action.yml` exists and each job installs only the tools it needs | Create from the `github-actions` skill template |
+| `p5.ci.no-devbox-in-ci` | No `devbox-install-action` and no `devbox run` in any workflow — CI installs tools via pinned setup actions | Replace with a `setup-tools` step |
+| `p5.ci.version-parity` | Every version in `setup-tools` carries a `# devbox.json: <pkg>@<constraint>` comment and satisfies that constraint | Flag a mismatch — picking which side is correct needs a human |
 | `p5.ci.workflow.concurrency` | `concurrency` block with `cancel-in-progress: true` | Add |
 | `p5.ci.workflow.minimal-permissions` | `permissions: contents: read` at workflow level | Add |
-| `p5.ci.workflow.no-latest-actions` | All `uses:` are pinned to `@v4` or SHA — never `@latest` | Fix |
+| `p5.ci.workflow.sha-pinned-actions` | **Every** `uses:` is pinned to a full 40-char commit SHA with the version in a trailing comment — the `github-actions` skill owns this rule; a mutable `@v4`/`@main` tag is a finding, not an acceptable state | Resolve with `gh api repos/<o>/<r>/commits/<tag> --jq .sha`, or `pinact run` for the whole tree. Flag if the SHA can't be resolved offline |
 | `p5.ci.workflow.persist-credentials-false` | `actions/checkout` has `persist-credentials: false` when downstream steps don't push | Add |
-| `p5.ci.workflow.audit-step` | CI runs `devbox run task audit` (or `audit:dev`) | Add step |
+| `p5.ci.workflow.audit-step` | CI runs `task audit` (or `audit:dev`) | Add step |
 | `p5.ci.workflow.matrix-envs` | For multi-env repos, `strategy.matrix.env` produces per-env audit runs | Add matrix |
 
 #### Release workflow — image build
@@ -352,7 +392,7 @@ These items complement Pass 4 and ensure the folder structure ArgoCD expects act
 |---|---|---|
 | `p5.ci.argo.applicationset-file` | `deploy/argo/applicationset.yaml` present | Create stub from `argo-applicationset` skill template |
 | `p5.ci.argo.singletons-file` | `deploy/argo/singletons.yaml` present (if any singleton services) | Create stub if applicable |
-| `p5.ci.argo.gitignore-argo-output` | `.argo/` is **not** in `.gitignore` (rendered output is intentionally committed) | Remove from `.gitignore` if present |
+| `p5.ci.argo.gitignore-argo-output` | `.argo/` **is** in `.gitignore` — it's a build artifact; ArgoCD renders `deploy/charts/<app>` itself via the ApplicationSet | Add to `.gitignore` if absent |
 
 ---
 
@@ -380,6 +420,18 @@ Goal: remove dead code and AI context bloat, per the `prune` skill.
 
 **Do not auto-delete anything.** Set `status: failed` for every finding, with the file path, line number, and rationale. Deletion requires explicit confirmation from the user.
 
+### Out of scope for this pass — do not flag
+
+Earlier passes deliberately create things `prune`'s generic heuristics would call bloat. Flagging them makes this pass fight Pass 2 and **the sweep can never converge**, because `failed` items block convergence. Skip:
+
+- **The standard infrastructure keys** in `values.yaml` (`nodeSelector: {}`, `tolerations: []`, `extraObjects: []`, …). The `helm` skill mandates all of them, even empty, so overlays can set them without the chart "supporting" them. They are interface, not dead config.
+- **Commented-out recommended shapes** in `values.yaml` (the `resources:` / `autoscaling:` / `metrics:` blocks). The `helm` skill requires these as inline documentation of every knob.
+- **Placeholder-looking values in the base `values.yaml`** (`example.com`, empty strings). The base layer is scaffold defaults by design; real values live in `defaults/` and `<env>/`. Only flag a placeholder that appears in `defaults/` or an env overlay, where it *is* a bug.
+- **`docker-compose.yaml`, `skaffold.yaml`, `.envrc`** being unreferenced by CI. They're local inner-loop tooling; nothing in CI is supposed to call them.
+- **Commented-out code blocks** — `tidy` already owns these at Pass 6. Two passes reporting one finding with different verdicts is a boundary bug, not thoroughness.
+
+Everything else in the `prune` checklist applies normally: genuinely unreferenced values, unused `_helpers.tpl` partials, dead template files, orphaned scripts, stale dependencies.
+
 Exception: stub files created in Pass 2 that are now empty (e.g., a `NOTES.txt` that is still the placeholder) should be filled in, not deleted.
 
 ---
@@ -398,10 +450,11 @@ Goal: README, architecture docs, and chart-level documentation are present and a
 | `p8.docs.local-dev-loop` | README explains `devbox run cluster:up` + `skaffold dev` flow | Add |
 | `p8.docs.chart-descriptions` | Each `Chart.yaml` has a non-empty `description:` | Flag — needs human input |
 
-**Hard rules from `document` skill**:
-- Mermaid only — no PNG/SVG/drawio
+**Hard rules from `document` skill** (that skill is authoritative — these are a reminder, not a restatement):
+- Mermaid first; SVG only when a diagram genuinely can't be expressed in Mermaid. Never PNG/JPG/drawio.
 - Document current code, not aspirations
 - No placeholder "TBD" sections — omit rather than stub
+- Update, don't overwrite — preserve accurate existing sections
 
 ---
 

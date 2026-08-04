@@ -1,12 +1,12 @@
 ---
 name: devbox
-description: Reproducible developer environments via pinned Nix packages. Covers .envrc setup with direnv, devbox.json structure, pinning strategy, CI integration via devbox-install-action, and an init_hook that performs SSO login (when available) and pulls required dev secrets from Vault on shell entry.
+description: 'Reproducible developer environments via pinned Nix packages. Covers .envrc setup with direnv, devbox.json structure, pinning strategy, and an init_hook that performs SSO login (when available) and pulls required dev secrets from Vault on shell entry. devbox.json is also the declared source of truth for tool versions that CI must match — CI itself does not run devbox.'
 user-invocable: true
 ---
 
 # Devbox
 
-Devbox pins CLI tool versions via Nix so every developer and CI run gets the exact same environment. It is the single source of truth for tool versions — not GitHub Actions setup steps, not global installs, not brew.
+Devbox pins CLI tool versions via Nix so every developer gets the exact same environment — not global installs, not brew. It is the **declared** source of truth for tool versions: `devbox.json` is where a version is decided, and CI's `setup-tools` action is obliged to match it (see *CI does not use devbox — but must match it*).
 
 ## .envrc — the project entry point
 
@@ -103,15 +103,23 @@ Like CI, `devbox run` scripts should call Taskfile tasks, not embed their own lo
 
 Everything that operates on the project's code delegates to `task`.
 
-## CI integration
+## CI does not use devbox — but must match it
 
-```yaml
-- uses: jetify-com/devbox-install-action@v0.13.0
-  with:
-    enable-cache: true    # caches Nix store — saves 60-120s per job
-```
+Devbox owns the **developer's** machine. CI installs the same tools a different way: pinned
+setup actions in a `setup-tools` composite action (see the `github-actions` skill). Running Nix
+on a runner buys a large closure to restore per job, a third-party action in every job's
+critical path, and opaque failures.
 
-Then invoke tasks with `devbox run task <name>`. See the `github-actions` skill for the full workflow structure.
+What survives is the important half: **`devbox.json` is the declared source of truth for tool
+versions**, and CI is obliged to match it. `devbox.json` pins the constraint (`helm@3.16`); CI
+pins a patch inside it (`v3.16.4`), with a `# devbox.json: helm@3.16` comment next to it so the
+pairing is checkable.
+
+**When you bump a version here, bump it in `.github/actions/setup-tools/action.yml` in the same
+commit.** The `github-actions` skill carries a `task ci:versions` check that fails on drift —
+wire it into `task lint` rather than relying on discipline. Divergence here means a chart
+renders one way locally and another way in CI, which surfaces as a confusing failed deploy
+rather than as a version problem.
 
 ## Gotchas
 
@@ -211,7 +219,7 @@ Add what the hook calls to `packages`: `vault`, `pre-commit`, and the cloud SSO 
 
 ### Keep it secure
 
-- Local dev secrets should come from the **same Vault paths the workload reads in-cluster** via ExternalSecret — see the `helm` skill's credential blocks — so dev and prod resolve the same keys.
+- Local dev secrets come from the **same Vault paths the workload reads in-cluster** via ExternalSecret, so dev and prod resolve the same keys. The `secrets` skill owns that path convention and the `/var/run/secrets/<block>/<key>` layout — follow it rather than inventing a local-only path.
 - Prefer Vault **dynamic** secrets (DB creds, cloud STS) over static KV; a leaked shell env then expires on its own.
 - Never `echo` a secret value, and never write one to a committed file. When you pull the whole secret as JSON, hold it in a shell var only as long as needed and `unset` it after extracting (as above); `jq -r` emits raw values so nothing gets quoted into the env.
 
@@ -230,7 +238,7 @@ When devbox setup is done, check the repo and offer whichever of these are missi
 | Skill | Offer when |
 |-------|-----------|
 | `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` in the repo root |
-| `github-actions` | No `.github/workflows/` directory, or existing workflows don't use `devbox-install-action` |
+| `github-actions` | No `.github/workflows/`, or no `setup-tools` composite action, or its versions have drifted from `devbox.json` |
 | `document` | No `docs/ARCHITECTURE.md` or README doesn't mention devbox in the quick start |
 
 Ask as a single grouped question — not mid-task, not separately for each.

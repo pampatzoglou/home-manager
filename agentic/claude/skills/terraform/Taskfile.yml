@@ -4,7 +4,10 @@ version: '3'
 # Terraform Taskfile
 #
 # READ-ONLY tasks (safe for AI assistants and automation):
-#   check, fmt, validate, lint, audit, plan, plan:<env>, docs, clean
+#   check, fmt, fmt:check, validate, lint, scan, audit, plan, plan:<env>, docs, clean
+#
+# `fmt` rewrites files, so CI runs `fmt:check` instead. `audit` is the full
+# pre-merge gate; `scan` is the security-scan step it calls.
 #
 # MUTATING tasks (run manually after reviewing the plan):
 #   apply:<env>, destroy:<env>
@@ -27,36 +30,52 @@ tasks:
       - terraform init -backend-config=backend-{{.TF_ENV}}.hcl -reconfigure
 
   fmt:
-    desc: Format all Terraform files
+    desc: Format all Terraform files (rewrites — local use)
     cmds:
       - terraform fmt -recursive
       - echo "✓ Terraform files formatted"
 
+  fmt:check:
+    desc: Fail if any file is unformatted (read-only — this is what CI runs)
+    cmds:
+      - |
+        if ! terraform fmt -check -recursive; then
+          echo "✗ Unformatted files above. Run 'task fmt'."
+          exit 1
+        fi
+        echo "✓ Formatting clean"
+
   validate:
     desc: Validate Terraform configuration syntax
-    deps: [fmt]
+    deps: [fmt:check]
     cmds:
       - terraform validate
       - echo "✓ Terraform configuration valid"
 
   lint:
     desc: Quick lint check (tflint only — terminal output, fails fast)
-    deps: [fmt, validate]
+    deps: [fmt:check, validate]
     cmds:
       - tflint --init
       - tflint --recursive
       - echo "✓ tflint passed"
 
+  scan:
+    desc: Security scan (tfsec, JSON output) — the standard `scan` task name
+    cmds:
+      - mkdir -p audit-results
+      - echo "→ Running tfsec…"
+      - tfsec . --format=json --out=audit-results/tfsec.json --soft-fail
+
   audit:
-    desc: 'Full security & best-practice audit (tflint + tfsec, JSON output, strict — fails on any finding)'
-    deps: [fmt, validate]
+    desc: 'Full pre-merge gate: fmt:check → validate → lint → scan, JSON output, fails on any finding'
+    deps: [fmt:check, validate]
     cmds:
       - mkdir -p audit-results
       - echo "→ Running tflint…"
       - tflint --init
       - 'tflint --recursive --format=json > audit-results/tflint.json || true'
-      - echo "→ Running tfsec…"
-      - tfsec . --format=json --out=audit-results/tfsec.json --soft-fail
+      - task: scan
       - echo "→ Summarising findings…"
       - |
         TFSEC_COUNT=$(jq '(.results // []) | length' audit-results/tfsec.json 2>/dev/null || echo 0)
@@ -89,13 +108,14 @@ tasks:
         echo "  tflint:  $TFLINT_COUNT issue(s)"
         echo "  tfsec:   $TFSEC_COUNT issue(s)"
 
+  # `audit` is the full pre-merge gate (see the `taskfile` skill's standard task set).
+  # `check` is the quick read-only pre-flight — no JSON, no strict failure on findings.
   check:
-    desc: Run all pre-flight checks (fmt, validate, lint, audit)
+    desc: Quick pre-flight checks (fmt:check, validate, lint) — no security scan
     cmds:
-      - task: fmt
+      - task: fmt:check
       - task: validate
       - task: lint
-      - task: audit
 
   # ── Plan — read-only, bare task iterates all environments ────────────────
 
@@ -209,8 +229,10 @@ tasks:
   clean:
     desc: Remove local Terraform artifacts (does NOT touch remote state)
     cmds:
+      # .terraform.lock.hcl is intentionally NOT removed — it is committed and pins
+      # provider versions. Deleting it silently unpins every provider on the next init.
+      # To deliberately re-resolve: terraform init -upgrade
       - rm -rf .terraform
-      - rm -f .terraform.lock.hcl
       - rm -f plan-*.tfplan
       - rm -rf audit-results
-      - echo "✓ Local artifacts cleaned"
+      - echo "✓ Local artifacts cleaned (.terraform.lock.hcl preserved)"

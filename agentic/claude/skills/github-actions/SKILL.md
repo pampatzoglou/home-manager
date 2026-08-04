@@ -1,28 +1,152 @@
 ---
 name: github-actions
-description: GitHub Actions CI that delegates all job logic to Taskfile via devbox. Covers the core checkout+devbox+task pattern, security hardening, OIDC auth, matrix strategies, environment protection, and workflow split (PR vs merge vs release).
+description: 'GitHub Actions CI that delegates all job logic to Taskfile tasks. Covers the core checkout + setup-tools + task pattern, the reusable setup-tools composite action and its version parity with devbox.json, SHA pinning, security hardening, OIDC auth, matrix strategies, environment protection, and workflow split (PR vs merge vs release). CI does not use devbox — that is the developer environment; CI installs the same pinned versions via setup actions.'
 user-invocable: true
 ---
 
 # GitHub Actions
 
-All CI workflows follow one principle: **the workflow handles infrastructure (checkout, auth, caching); tasks handle logic (`devbox run task X`)**. Workflows with inline commands are harder to reproduce locally, harder to test, and harder to maintain.
+All CI workflows follow one principle: **the workflow handles infrastructure (checkout, tool installation, auth, caching); tasks handle logic (`task X`)**. Workflows with inline commands are harder to reproduce locally, harder to test, and harder to maintain.
 
 ## Core pattern
 
-Every job step that does project work:
+Every job: check out, install the tools this job needs, then call a task.
 
 ```yaml
-- uses: actions/checkout@v4
-- uses: jetify-com/devbox-install-action@v0.13.0
+- uses: actions/checkout@<sha>            # v4.2.2
   with:
-    enable-cache: true    # caches Nix store — saves 60-120s per job
-- run: devbox run task <task-name>
+    persist-credentials: false
+- uses: ./.github/actions/setup-tools     # installs pinned tools — see below
+  with:
+    helm: "true"
+    kubectl: "true"
+- run: task audit:dev
 ```
 
-No `setup-helm`, `setup-terraform`, `setup-node` — devbox brings all pinned tools. See the `devbox` skill for package setup and the `taskfile` skill for task conventions.
+**Do not use devbox in CI.** Devbox is the *developer's* environment manager — it owns the
+laptop, not the runner. On a runner it adds a large Nix closure to restore on every job, a
+third-party action in every job's critical path, and an opaque failure mode (`task: command
+not found` meaning "the Nix install failed"). Install tools with their own pinned setup
+actions instead.
+
+What devbox is still authoritative for: **the version numbers**. `devbox.json` declares the
+toolchain; CI installs the same versions through different means. That parity is an obligation,
+not a nicety — see **Keeping CI and devbox in sync** below. If they drift, a chart renders one
+way on a laptop and another way in CI, and you find out from a failed deploy.
+
+See the `devbox` skill for the package list and the `taskfile` skill for task conventions.
 
 This file covers the generic foundations. For Kubernetes/ArgoCD delivery, two reference files go deeper: `kubernetes-ci.md` (PR-time lint/template/audit) and `cross-repo-promotion.md` (merge-time image-tag promotion into the GitOps repo).
+
+## The setup-tools composite action
+
+Installing tools inline in every job means the same pinned SHA and version pasted into six
+places, which drifts the moment one gets bumped. Put it in one composite action with a toggle
+per tool, so each job asks for exactly what it needs.
+
+`.github/actions/setup-tools/action.yml`:
+
+```yaml
+name: Setup tools
+description: Install the pinned toolchain. Versions must match devbox.json — see the github-actions skill.
+
+inputs:
+  task:        { description: Install go-task,     default: "true" }
+  helm:        { description: Install helm,        default: "false" }
+  kubectl:     { description: Install kubectl,     default: "false" }
+  kubeconform: { description: Install kubeconform, default: "false" }
+  kubescape:   { description: Install kubescape,   default: "false" }
+  terraform:   { description: Install terraform,   default: "false" }
+
+runs:
+  using: composite
+  steps:
+    # go-task is on by default — every job's entry point is `task <name>`.
+    - name: Install go-task
+      if: inputs.task == 'true'
+      uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+      with:
+        version: 3.40.1                 # devbox.json: go-task@3.40
+
+    - name: Install helm
+      if: inputs.helm == 'true'
+      uses: azure/setup-helm@<sha>      # v4.3.0 — resolve before use
+      with:
+        version: v3.16.4                # devbox.json: helm@3.16
+
+    - name: Install kubectl
+      if: inputs.kubectl == 'true'
+      uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+      with:
+        version: v1.33.4                # devbox.json: kubectl@1.33
+
+    - name: Install terraform
+      if: inputs.terraform == 'true'
+      uses: hashicorp/setup-terraform@<sha>  # v3.1.2 — resolve before use
+      with:
+        terraform_version: 1.9.8        # devbox.json: terraform@1.9
+        terraform_wrapper: false        # the wrapper mangles exit codes task relies on
+
+    # Tools with no maintained setup action: fetch the release, arch-detected.
+    - name: Install kubeconform
+      if: inputs.kubeconform == 'true'
+      shell: bash
+      env:
+        VERSION: "0.7.0"                # devbox.json: kubeconform@0.7
+      run: |
+        set -euo pipefail
+        arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+        curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v${VERSION}/kubeconform-linux-${arch}.tar.gz" \
+          | tar -xz -C /usr/local/bin kubeconform
+
+    - name: Install kubescape
+      if: inputs.kubescape == 'true'
+      shell: bash
+      env:
+        VERSION: "3.0.34"               # devbox.json: kubescape@3
+      run: |
+        set -euo pipefail
+        arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+        curl -fsSL -o /usr/local/bin/kubescape \
+          "https://github.com/kubescape/kubescape/releases/download/v${VERSION}/kubescape-ubuntu-${arch}"
+        chmod +x /usr/local/bin/kubescape
+```
+
+Rules for this file:
+
+- **Every `uses:` is SHA-pinned** — composite actions are not exempt. The three SHAs above are real; the ones written `<sha>` must be resolved before use (see **Pinning actions to digests**).
+- **Every version carries a `# devbox.json: <pkg>@<constraint>` comment.** That comment is what makes the parity checkable by a human *and* by the script below.
+- **Default to `false`** for everything except `task`. A job that only runs unit tests shouldn't install helm.
+- **No arch hardcoding** in the `curl` fallbacks — detect it, same rule as the `dockerfile` skill.
+- `terraform_wrapper: false` — the wrapper wraps stdout/exit codes and breaks `task`'s error propagation.
+
+## Keeping CI and devbox in sync
+
+`devbox.json` declares the constraint (`helm@3.16`); CI pins a patch inside it (`v3.16.4`). The
+obligation is that **the CI version satisfies the devbox constraint** — same major.minor, patch
+free to differ. Enforce it rather than trusting it:
+
+```bash
+# task ci:versions — fails if a CI pin drifts outside its devbox constraint
+set -euo pipefail
+status=0
+while IFS= read -r line; do
+  ver=$(printf '%s' "$line" | sed -n 's/.*version[_a-z]*:[[:space:]]*v\{0,1\}\([0-9][0-9.]*\).*/\1/p')
+  pkg=$(printf '%s' "$line" | sed -n 's/.*devbox\.json:[[:space:]]*\([a-z0-9-]*\)@.*/\1/p')
+  want=$(printf '%s' "$line" | sed -n 's/.*devbox\.json:[[:space:]]*[a-z0-9-]*@\([0-9.]*\).*/\1/p')
+  [ -n "$ver" ] && [ -n "$want" ] || continue
+  case "$ver" in
+    "$want"|"$want".*) ;;
+    *) echo "✗ $pkg: CI pins $ver but devbox.json declares $want"; status=1 ;;
+  esac
+done < <(grep -n 'devbox\.json:' .github/actions/setup-tools/action.yml)
+[ "$status" -eq 0 ] && echo "✓ CI tool versions match devbox.json"
+exit "$status"
+```
+
+Wire it into `task lint` so a bump in one place fails until it's made in both. Bumping a tool
+is then a two-line change in two files — annoying by design, because the alternative is silent
+dev/CI divergence.
 
 ## Standard workflow structure
 
@@ -46,11 +170,15 @@ jobs:
     name: Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jetify-com/devbox-install-action@v0.13.0
+      - uses: actions/checkout@<sha>          # v4.2.2
         with:
-          enable-cache: true
-      - run: devbox run task audit
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tools
+        with:
+          helm: "true"
+          kubeconform: "true"
+          kubescape: "true"
+      - run: task audit
 ```
 
 ## Security hardening
@@ -86,7 +214,7 @@ Tags (`@v4`, `@v4.2.2`) and branches (`@main`) are **mutable** — whoever contr
 ```yaml
 # ✅ pinned to a digest; version in a trailing comment for readability + Dependabot
 - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-- uses: jetify-com/devbox-install-action@<full-40-char-commit-sha> # v0.13.0
+- uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
 
 # ❌ mutable — never in real workflows
 - uses: actions/checkout@v4
@@ -129,14 +257,14 @@ strategy:
     env: [dev, prod]
 
 steps:
-  - run: devbox run task audit:${{ matrix.env }}
+  - run: task audit:${{ matrix.env }}
 ```
 
 `fail-fast: false` is almost always correct — seeing all failures at once is more useful than stopping at the first.
 
 ## Caching
 
-Devbox (Nix store) cache is handled by `enable-cache: true`. For language-level caches, add after the devbox step:
+The setup actions above are fast and need no caching of their own. For language-level caches, add after the setup step:
 
 ```yaml
 # Go modules
@@ -188,7 +316,7 @@ Fork PRs cannot access base repo secrets. Use `if: secrets.X != ''` to skip step
 ```yaml
 - name: Run integration tests
   if: secrets.API_KEY != ''
-  run: devbox run task test:integration
+  run: task test:integration
   env:
     API_KEY: ${{ secrets.API_KEY }}
 ```
@@ -218,8 +346,9 @@ concurrency:
 
 | Symptom | Cause |
 |---|---|
-| `task: command not found` | devbox install failed — check action version compatibility |
-| `devbox run task X` hangs | Task waiting for stdin — add `--yes` or non-interactive flags |
+| `task: command not found` | the `setup-tools` step was omitted, or its `task` input was set to `"false"` |
+| `task X` hangs | Task waiting for stdin — add `--yes` or non-interactive flags |
+| a tool works locally but not in CI | its version is missing from `setup-tools`, or drifted from `devbox.json` — run the parity check |
 | Cache miss every run | Cache key changes each run — check that lockfiles aren't being modified before the cache step |
 | Fork PRs skip steps | Expected — forks can't access base secrets; guard with `if: secrets.X != ''` |
 | Job slow on first run | Cold Nix store — subsequent runs hit the cache |
@@ -230,7 +359,7 @@ For Helm/ArgoCD repos the pipeline splits across two companion files; read the o
 
 | File | Covers | When |
 |---|---|---|
-| `kubernetes-ci.md` | lint/template/audit matrix over environments, the `.argo/` committed-output diff, canonical `ci.yaml`, branch protection | PR-time checks |
+| `kubernetes-ci.md` | lint/template/audit matrix over environments, the `.argo/` render check, canonical `ci.yaml`, branch protection | PR-time checks |
 | `cross-repo-promotion.md` | promoting the built image tag into the separate GitOps repo via a scoped GitHub App token and an auto-merged PR | merge-time deploy |
 
 ## Companion skills — offer after completing
@@ -239,7 +368,7 @@ When the CI workflow is done, check the repo and offer whichever of these are mi
 
 | Skill | Offer when |
 |-------|-----------|
-| `devbox` | No `devbox.json` in the repo root — CI assumes devbox, so this is a blocker if missing |
+| `devbox` | No `devbox.json` — CI does not use it, but it is the declared source of the versions `setup-tools` must match |
 | `taskfile` | No `Taskfile.yaml` / `Taskfile.yml` in the repo root — CI calls tasks, so this is a blocker if missing |
 | `document` | No `docs/ARCHITECTURE.md`, or existing README doesn't describe the CI/CD pipeline |
 

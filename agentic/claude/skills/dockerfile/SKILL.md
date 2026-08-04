@@ -32,7 +32,7 @@ base ──► build ────────┤                  used by docker
 1. **Verify before adding.** Read the actual source files and manifests before writing any instruction. Never assume a package is needed. Ask if uncertain.
 2. **Architecture-agnostic through `develop`.** `base`, `build`, and `develop` must build natively on any builder — an arm64 laptop and amd64 CI from the same Dockerfile. Use multi-arch official images, never hardcode `amd64`/`arm64`/`x86_64`, and detect arch dynamically (`TARGETARCH`, `uname -m`) for any binary download. Production keeps this property too, but is additionally locked — see rule 6.
 3. **No HEALTHCHECK.** Health endpoints are application-specific and cannot be verified from analysis. Users add their own.
-4. **Explicit non-root user in production.** Always create an `app` user in the production stage. Use `--chown=app:app` on every `COPY`. Switch with `USER app` before `CMD`.
+4. **Explicit non-root user in production.** On distroless (the default choice) use the built-in `nonroot` account and switch with numeric `USER 65532:65532`; on Alpine/Debian create an `app` user. Either way every production `COPY` carries `--chown` matching that exact uid, and `USER` comes before `CMD`. **The uid here is the single source of truth** — compose `user:` and the chart's `runAsUser`/`runAsGroup`/`fsGroup` mirror it, never the reverse.
 5. **Explicit COPY everywhere.** Never `COPY . .` in any stage — copy only what each stage needs.
 6. **Pin base images; lock production to a digest.** Never `:latest` — derive the version from project files. The `production` runtime base should be pinned by digest (`FROM …@sha256:…`), preferably the **multi-arch manifest-list digest** so it stays arch-agnostic (rule 2) while being immutable and reproducible. Dev-side stages (`base`/`build`/`develop`) can pin by tag for convenience; production is the one that gets pushed and deployed, so it gets the digest lock. Tags drift; digests don't.
 7. **Production is read-only; writable paths are `VOLUME`s.** The production image is built to run with a read-only root filesystem. Every directory the app writes to at runtime (`/tmp`, caches, work dirs) must be declared with `VOLUME` — that list is the contract the runtime mounts writable, and everything else stays immutable. **Enforced in production** (k8s `readOnlyRootFilesystem: true`); **recommended in dev** (compose `read_only: true`) so a missing path surfaces on a laptop, not in the cluster. See *Read-only root filesystem* below.
@@ -243,16 +243,34 @@ CMD ["<executable>", "<arg>"]    # exec form always — never shell form in prod
 | Debian slim | `RUN groupadd --system app && useradd --system --gid app --no-create-home app` | `--chown=app:app` |
 | Distroless (preferred) | No `RUN` possible — use built-in `nonroot` user (uid 65532) | `--chown=65532:65532` or `--chown=nonroot:nonroot` |
 
-For distroless images, if a named `app` user is strictly required, create it in a helper stage:
+**On distroless, don't create a user — use the one it ships.** `nonroot` (uid/gid `65532`) already exists in every `*:nonroot` distroless tag, and `65532` is the value the whole toolchain expects: compose `user:`, and the chart's `runAsUser`/`runAsGroup`/`fsGroup` (see `resource-standards.md`). Reaching for a named `app` user here buys nothing and is the usual source of a uid mismatch.
+
+```dockerfile
+FROM gcr.io/distroless/static-debian12:nonroot AS production
+WORKDIR /app
+COPY --from=build --chown=65532:65532 /app/binary /app/binary
+VOLUME ["/tmp"]
+USER 65532:65532          # numeric — resolves without /etc/passwd
+CMD ["/app/binary"]
+```
+
+Prefer the **numeric** `USER 65532:65532` over `USER nonroot`: a numeric uid needs no `/etc/passwd` lookup, and Kubernetes `runAsNonRoot: true` validates a numeric uid without having to resolve a name.
+
+If a *named* `app` user is genuinely required (some third-party tooling insists), copy the account database from a helper stage and keep every uid reference identical:
+
 ```dockerfile
 FROM alpine:3.21 AS user-setup
-RUN addgroup -S app && adduser -S app -G app
+# Pin the uid explicitly — `adduser -S` otherwise picks the first free system id,
+# which won't match the --chown below.
+RUN addgroup -S -g 65532 app && adduser -S -u 65532 -G app app
 
 FROM gcr.io/distroless/static-debian12 AS production
 COPY --from=user-setup /etc/passwd /etc/group /etc/
-COPY --from=build --chown=65534:65534 /app/binary /app/binary
+COPY --from=build --chown=65532:65532 /app/binary /app/binary
 USER app
 ```
+
+The failure this avoids: copying with `--chown=65534:65534` (that's `nobody`, not `nonroot`) and then `USER app` at some third uid — the process can't read its own binary, and the error is a bare permission denied.
 
 **Production image selection:**
 
@@ -370,6 +388,8 @@ docs/
 *.md
 !README.md
 ```
+
+**The block above is a menu, not a file to paste.** It lists every language's artifacts; the `.dockerignore` you emit keeps only the sections that apply to *this* project. A Go service has no `node_modules/` or `.venv/` to exclude, so those lines are noise that makes the real entries harder to review.
 
 **Keep the file lean.** Only exclude things that exist in directories being COPY-ed or that are large enough to matter for context transfer time. Don't exclude directories the Dockerfile never copies — that's redundant noise.
 
@@ -527,9 +547,10 @@ Present the improved files with a summary:
 - [ ] No hardcoded `amd64`/`arm64`/`x86_64` anywhere; arch detected dynamically
 - [ ] No `COPY . .` in any stage — all COPYs are explicit
 - [ ] In `build`, dependency manifests copied and installed before source `COPY` (layer caching)
-- [ ] Production stage creates an explicit `app` user and group
-- [ ] Every `COPY` in the production stage uses `--chown=app:app` (or `--chown=65532:65532` for distroless)
-- [ ] `USER app` appears before `CMD` in production
+- [ ] Production runs as an explicit non-root user: distroless → built-in `nonroot`, `USER 65532:65532`; Alpine/Debian → a created `app` user
+- [ ] Every `COPY` in the production stage uses `--chown` matching that exact uid (`--chown=65532:65532` for distroless, `--chown=app:app` for a created user) — no mismatch between `--chown` and `USER`
+- [ ] `USER` appears before `CMD` in production
+- [ ] The uid matches compose `user:` and the chart's `runAsUser`/`runAsGroup`/`fsGroup`
 - [ ] All writable runtime paths declared with `VOLUME` — the contract for read-only rootfs
 - [ ] Production designed for a read-only root filesystem; each `VOLUME` maps to a compose tmpfs/volume (dev) and a k8s `emptyDir` (prod)
 - [ ] Production uses distroless (or slim with documented justification)
@@ -544,7 +565,8 @@ Present the improved files with a summary:
 - [ ] Excludes large generated directories (`node_modules`, `target/`, `dist/`, etc.)
 - [ ] Excludes local dev tooling (`devbox.json`, `Taskfile.yaml`, `skaffold.yaml`, `docker-compose*.yaml`)
 - [ ] Does not exclude directories the Dockerfile never copies
-- [ ] Under 40 lines
+- [ ] Scoped to this project's language(s) — the template in this skill is a multi-language menu, not the file to emit
+- [ ] Roughly under 40 lines once scoped; longer is fine if the project genuinely spans several runtimes
 
 ### Validation checklist
 

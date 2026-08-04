@@ -24,9 +24,12 @@ Detect what the change touches and invoke each matching skill. Apply that skill'
 | Kubernetes manifests / rendered workloads | `kubernetes` |
 | ArgoCD ApplicationSets (`deploy/argo/`) | `argo-applicationset` |
 | Local dev loop (`skaffold.yaml`) | `skaffold` |
-| GitHub Actions (`.github/workflows/`) | `github-actions` |
+| Local dev loop (`docker-compose.yaml`, `compose.yaml`) | `docker-compose` |
+| GitHub Actions (`.github/workflows/`) | `github-actions`; add `ci` when the change restructures the pipeline rather than editing a step |
 | Dockerfiles (`Dockerfile`, `.dockerignore`) | `dockerfile` |
 | Tooling (`devbox.json`, `Taskfile.yaml`) | `devbox`, `taskfile` |
+| Labels, tags, or resource metadata on any platform | `tagging` |
+| Credentials, ExternalSecret/VaultDynamicSecret, `*_FILE` env, `secrets:` blocks | `secrets` |
 | Nix expressions / home-manager (`*.nix`, `flake.nix`) | _(use CLAUDE.md Nix guidance)_ |
 | Docs affected (README, `docs/`, chart/module READMEs) | `document` |
 
@@ -35,12 +38,16 @@ Invoke only the skills whose surface the diff actually changes. If none match (e
 ### 3. Check the cross-stack seams
 The only criteria this skill owns — bugs that live *between* skills, so no single one catches them:
 - [ ] Values-layering order is identical across `taskfile` (`_template`), `argo-applicationset`, and `skaffold`: `values.yaml → defaults/ → <env>/ → <variant>`
-- [ ] Image tag/digest produced by CI matches what the chart and ApplicationSet consume — no drift, no `:latest`
+- [ ] Image tag/digest produced by CI matches what the chart and ApplicationSet consume — no drift, no `:latest`. Check *which layer* CI writes the tag into: a per-environment promotion must write `<env>/values.yaml`, never `defaults/values.yaml`, or promoting one environment silently retags every other
+- [ ] The GitOps topology is stated and consistent: either the `deploy` branch lives in this repo (`argo-applicationset`) **or** promotion pushes into a separate GitOps repo (`github-actions/cross-repo-promotion.md`) — not both, and `deploy/argo/` exists in exactly one of them
+- [ ] `.argo/` is gitignored and nothing treats it as the deployment source — ArgoCD renders `deploy/charts/<app>` itself
+- [ ] Labels use one vocabulary: `app.kubernetes.io/*` from the chart's labels helper, with no bare-key duplicates alongside them (`tagging` owns the boundary)
 - [ ] Non-root UID is consistent across the Dockerfile (`USER`, the source of truth), docker-compose (`user:`), and the pod `securityContext` (`runAsUser`/`runAsGroup`/`fsGroup`) — e.g. distroless `65532`
 - [ ] Chart `name` matches its directory and the ApplicationSet's expectation
 - [ ] CI delegates to Taskfile tasks (no inline helm/kubectl/terraform) so local and CI behave identically
 - [ ] Read-only rootfs is consistent: every Dockerfile `VOLUME` has a writable mount in compose (tmpfs/volume) and the chart (`emptyDir`), and the rootfs is read-only in both (`read_only` / `readOnlyRootFilesystem: true`)
 - [ ] Secrets flow through ExternalSecret/Vault, never inlined into a committed `values.yaml`, tfvars, or workflow
+- [ ] The secret path and `*_FILE` env var are byte-identical between the chart and docker-compose (`/var/run/secrets/<block>/<key>`) — a flat compose target silently forks dev from prod (`secrets` skill)
 
 ### 4. Consolidate and report
 Merge every finding — from the built-ins, each invoked skill, and the seams above — into one report. Lead with **blockers** (security, data loss, unbounded resources, broken correctness, cluster-wide misconfig). For each finding: file and line, what's wrong and *why* it matters, a concrete fix. Tag each **must fix** / **should fix** / **consider**.

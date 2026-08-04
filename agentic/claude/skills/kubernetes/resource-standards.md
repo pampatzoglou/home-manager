@@ -145,7 +145,7 @@ Selectors (`spec.selector.matchLabels`, Service selectors) are immutable on Depl
 ## ConfigMaps and Secrets
 
 - Mount as files when the config is hot-reloadable; use env vars for simple settings the app reads at boot.
-- For Secrets, prefer `external-secrets` with `ExternalSecret` referencing Vault/AWS SM/etc. Never commit a Secret with literal `data:` values to git.
+- For Secrets, prefer `external-secrets` with `ExternalSecret` referencing Vault/AWS SM/etc. Never commit a Secret with literal `data:` values to git. The **`secrets` skill owns the full contract** — source modes, Vault paths, the `/var/run/secrets/<block>/<key>` mount path, and the `*_FILE` env convention; apply it rather than improvising per chart.
 - Use the `reloader` annotation (or equivalent) to roll Deployments when their ConfigMap/Secret changes:
   ```yaml
   metadata:

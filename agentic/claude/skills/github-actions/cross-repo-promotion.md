@@ -2,7 +2,18 @@
 
 Companion to `SKILL.md` (foundations: core pattern, security, matrix, caching). This file covers the **merge-time** deploy half of Kubernetes delivery: moving a freshly built image tag from a **service repo** into the separate **GitOps repo** ArgoCD watches. For the **PR-time** checks (lint/template/audit) see `kubernetes-ci.md`.
 
-The service repo owns the chart definitions under `deploy/`; the promotion job syncs them into the GitOps repo's deploy branch and bumps `image.tag` on every chart, then opens and auto-merges a PR.
+The service repo owns the chart definitions under `deploy/charts/`; the promotion job syncs them into the GitOps repo's deploy branch, bumps `image.tag` in the target environment's values layer, then opens and auto-merges a PR.
+
+## Pick one topology — these two are mutually exclusive
+
+There are two supported GitOps layouts, and a repo must use exactly one:
+
+| Topology | Where ArgoCD looks | Use this file? |
+|---|---|---|
+| **Same-repo** — `main` holds source, a `deploy` branch holds CI-updated values | `deploy/argo/` + `deploy/charts/` in the service repo, `targetRevision: deploy` | No. Have CI commit the tag bump to the `deploy` branch of this repo; see the `argo-applicationset` skill's `targetRevision` section |
+| **Separate GitOps repo** — this file | `deploy/charts/` in the GitOps repo; ApplicationSets still in the service repo's `deploy/argo/` | Yes |
+
+Running both means two sources of truth for the same charts and a permanent sync fight. Confirm which one the repo uses before wiring anything — the `ci` skill asks this during analysis.
 
 Flow: `build-push` → mint App token → checkout GitOps repo → sync `deploy/` + bump tags → commit on a throwaway branch → PR → squash-merge → ArgoCD syncs on its own.
 
@@ -31,14 +42,15 @@ Bumping each chart with its own copy-pasted `yq` line (and repeating the service
   deploy-dev:
     name: Deploy to dev
     runs-on: ubuntu-latest
-    needs: [...]
+    needs: [build-push]
     timeout-minutes: 5
-    # Promote only from the default branch.
+    # Promote only from the default branch, after a successful build.
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     permissions:
       id-token: write     # OIDC, only if a prior step needs cloud auth
       contents: read      # cross-repo writes use the App token, NOT GITHUB_TOKEN
     env:
+      ENVIRONMENT: dev
       GITOPS_REPO: my-org/gitops    # the repo ArgoCD watches
       GITOPS_BRANCH: deploy
     steps:
@@ -79,15 +91,24 @@ Bumping each chart with its own copy-pasted `yq` line (and repeating the service
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git switch -c "deploy-${ENVIRONMENT}-${{ github.run_id }}"
 
-          # Service repo is the source of truth for deploy/ — sync it across.
-          cp -fr ../deploy/ ./
+          # Sync chart definitions only. deploy/argo/ stays in the service repo —
+          # the platform app-of-apps reads ApplicationSets from there (see the
+          # `argo-applicationset` skill). Copying them here would create a second
+          # live copy of the same ApplicationSet resources.
+          mkdir -p deploy/charts
+          rsync -a --delete ../deploy/charts/ deploy/charts/
 
-          # Bump image.tag for every chart — no per-service duplication.
+          # Bump image.tag in the PER-ENVIRONMENT layer, never defaults/.
+          # defaults/ is "true for every cluster deployment" (see the `helm` skill), so
+          # writing the tag there means promoting dev also retags prod — every
+          # environment would ship whatever was built last.
           for chart in deploy/charts/*/; do
-            f="${chart}defaults/values.yaml"
-            [ -f "$f" ] || continue
+            [ -f "${chart}Chart.yaml" ] || continue
+            f="${chart}${ENVIRONMENT}/values.yaml"
+            mkdir -p "${chart}${ENVIRONMENT}"
+            [ -f "$f" ] || echo '{}' > "$f"
             yq eval ".image.tag = \"$IMAGE_TAG\"" -i "$f"
-            echo "  bumped ${chart} -> $IMAGE_TAG"
+            echo "  bumped ${chart} (${ENVIRONMENT}) -> $IMAGE_TAG"
           done
 
           git add -A
