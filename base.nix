@@ -2,18 +2,25 @@
 
 let
   # Auto-detect username from environment with fallback
-  username = let env_user = builtins.getEnv "USER";
-  in if env_user != "" then
-    env_user
-  else
-    builtins.throw
-    "Unable to determine username. Please set USER environment variable or use --impure flag.";
-in {
+  username =
+    let env_user = builtins.getEnv "USER";
+    in if env_user != "" then
+      env_user
+    else
+      builtins.throw
+        "Unable to determine username. Please set USER environment variable or use --impure flag.";
+in
+{
   # Core home-manager configuration - auto-detect username from environment
   home.username = username;
   home.homeDirectory =
-    if pkgs.stdenv.isDarwin then "/Users/${username}" else "/home/${username}";
-  home.stateVersion = "25.05"; # Please read the comment before changing.
+    if pkgs.stdenv.hostPlatform.isDarwin then "/Users/${username}" else "/home/${username}";
+  # Records which home-manager default behaviours apply — not a value to keep
+  # in sync with nixpkgs. Bumped 25.05 -> 26.05 deliberately: the only gated
+  # change that affects this config is Darwin app *copying* (>= 25.11) instead
+  # of store symlinks, so Spotlight/Launchpad can index GUI apps. The zsh
+  # dotfile relocation is gated on xdg.enable, which is false here.
+  home.stateVersion = "26.05";
   home.enableNixpkgsReleaseCheck = false; # Disable version mismatch warning
 
   # Allow unfree packages (VS Code, etc.)

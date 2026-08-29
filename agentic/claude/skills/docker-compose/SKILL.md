@@ -1,11 +1,18 @@
 ---
 name: docker-compose
 description: 'Author docker-compose.yaml for the local development inner loop, built to mirror how the workload runs in Kubernetes. Use when adding or editing a compose file, setting up local dev for a service, or running docker compose up. Every service gets named volumes (like PVCs/emptyDir), file-based secrets mounted at the same nested path the chart uses via the *_FILE env convention (the `secrets` skill owns that contract), and a securityContext-equivalent hardening block (read_only, tmpfs, cap_drop, no-new-privileges, non-root user). Triggers on docker-compose, compose.yaml, docker compose, "local dev environment", "run it locally".'
-user-invocable: true
-requires: [dockerfile]
+requires: [dockerfile, secrets]
 ---
 
 # docker-compose for local dev (Kubernetes-parity)
+
+## Load first
+
+- `dockerfile` — the stage names compose builds (`target: develop`) and the `USER` uid that
+  `user:` must match. The Dockerfile is the single source of truth for that uid; align compose
+  to it, never the reverse.
+- `secrets` — the mount path and `*_FILE` env convention this file has to reproduce verbatim.
+  Compose owns the `secrets:` syntax; it does not get to re-decide the contract.
 
 Generate a `docker-compose.yaml` for the local inner loop that behaves like the in-cluster deployment, so "works on my machine" means "works in the cluster." The bridge is built from three things every service must have: **file-based secrets at the k8s paths**, **named volumes**, and a **security block that maps to a pod `securityContext`**.
 
@@ -48,13 +55,29 @@ Per service, mount it and point the app at the file with the `*_FILE` convention
 
 ```yaml
     environment:
-      - DATABASE_PASSWORD_FILE=/var/run/secrets/db/password
+      - DB_PASSWORD_FILE=/var/run/secrets/db/password
     secrets:
       - source: db_password
         target: /var/run/secrets/db/password
 ```
 
-**Mount to the nested path, not a flat file.** `target: /run/secrets/db_password` is the tempting shorthand and it breaks the whole premise: a mounted Kubernetes Secret produces a *directory of keys*, so the chart's path is `/var/run/secrets/db/password`. Flatten it here and `DATABASE_PASSWORD_FILE` has to differ between dev and prod — the one thing this parity exercise exists to prevent. (`/var/run` is a symlink to `/run` on Debian and distroless-Debian, so they resolve identically; write the same string as the chart so the match is auditable.)
+**Mount to the nested path, not a flat file.** `target: /run/secrets/db_password` is the tempting shorthand and it breaks the whole premise: a mounted Kubernetes Secret produces a *directory of keys*, so the chart's path is `/var/run/secrets/db/password`. Flatten it here and `DB_PASSWORD_FILE` has to differ between dev and prod — the one thing this parity exercise exists to prevent. (`/var/run` is a symlink to `/run` on Debian and distroless-Debian, so they resolve identically; write the same string as the chart so the match is auditable.)
+
+**When the app only reads env vars.** Some code — and every third-party image — won't read a file.
+The chart handles that with `secretKeyRef`; compose has no equivalent, and a literal in
+`environment:` is not the substitute. Keep the mount and derive the env var from it at startup:
+
+```yaml
+    environment:
+      - DB_PASSWORD_FILE=/var/run/secrets/db/password
+    entrypoint: ["/bin/sh", "-c", 'export DB_PASSWORD="$$(cat "$$DB_PASSWORD_FILE")"; exec "$$@"', "--"]
+```
+
+(`$$` escapes compose's own interpolation.) Better still, put that shim in the image so the same
+two lines run in the cluster — then dev and prod produce the env var the same way, from the same
+file, and neither compose nor the chart holds a value. Third-party images usually ship this
+already as the `*_FILE` convention (`POSTGRES_PASSWORD_FILE`, `MYSQL_ROOT_PASSWORD_FILE`) — use it
+rather than writing a shim.
 
 **Where the files come from.** `./secrets/` is gitignored and populated from the **same Vault paths the cluster reads via ExternalSecret** — see the `secrets` skill for `task secrets:pull`, and the `devbox` skill for pulling on shell entry.
 
@@ -83,6 +106,19 @@ volumes:
 ```
 
 Prefer plain named volumes in a shareable compose; reserve host `bind` devices for machine-specific data (it's the `hostPath` of compose — not portable).
+
+## Platform — pin third-party images on Apple Silicon
+
+Your own images build natively (the `dockerfile` skill's rule 2). A third-party image that ships
+amd64 only will silently run under QEMU on an arm64 laptop — slow, and occasionally broken in ways
+that look like application bugs. Pin it explicitly and comment why:
+
+```yaml
+    image: some/amd64-only-tool:1.4
+    platform: linux/amd64            # no arm64 image published; runs emulated
+```
+
+Never add `platform:` to a service you build yourself — that forces emulation for no reason.
 
 ## Per-service hardening — the securityContext block
 
@@ -156,9 +192,9 @@ services:
       db:
         condition: service_healthy
     environment:
-      - DATABASE_HOST=db
-      - DATABASE_USER=myapp
-      - DATABASE_PASSWORD_FILE=/var/run/secrets/db/password  # *_FILE, not a literal
+      - DB_HOST=db
+      - DB_USERNAME=myapp
+      - DB_PASSWORD_FILE=/var/run/secrets/db/password  # *_FILE, not a literal
     secrets:
       - source: db_password
         target: /var/run/secrets/db/password
@@ -167,7 +203,11 @@ services:
     ports:
       - "8080:8080"                   # publish only the user-facing port
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      # Use a probe binary that exists in the image — `curl` is absent from
+      # golang:alpine, distroless, and most slim bases. `wget -q --spider`
+      # (busybox), the app's own `/healthz` subcommand, or a tiny Go/Node
+      # one-liner all work; verify with `docker compose exec app <cmd>` first.
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -201,6 +241,38 @@ services:
       start_period: 30s
 ```
 
+## Hot reload: bind mount vs `develop.watch`
+
+`volumes: [.:/app]` is the simple option and it has two well-known edges, both worse under the
+non-root `user:` above:
+
+- **Ownership.** The host source is owned by your uid; the container runs as `65532`. On Linux the
+  reload daemon then can't write its build output into the mounted tree. macOS/Docker Desktop
+  remaps ownership and hides this — so it fails first in Linux CI. Either keep the reloader's
+  scratch dir off the bind mount (`air`'s `tmp_dir` → a `tmpfs`), or `chgrp`/`chmod g+w` the paths
+  it writes, or use watch-sync below.
+- **Shadowing.** The mount covers everything the image built at that path — `/app/node_modules`,
+  `/app/.venv`, a compiled `dist/` — with whatever the host has. The classic fix is an anonymous
+  volume in front of it (`- /app/node_modules`), which then goes stale when the manifest changes.
+
+`develop.watch` avoids both by *copying* changed files in rather than mounting over the directory,
+and re-running the build when a manifest changes:
+
+```yaml
+    develop:
+      watch:
+        - action: sync                # copy changed source into the running container
+          path: ./src
+          target: /app/src
+          ignore: [node_modules/]
+        - action: rebuild             # dependency change → rebuild the image
+          path: package.json
+```
+
+Run with `docker compose up --watch`. Prefer it for Node/Python projects (where shadowing bites
+hardest) and for anything that must run non-root on Linux; the plain bind mount is fine for Go and
+Rust, where the reloader writes to its own scratch dir.
+
 ## `expose` vs `ports`
 
 - `expose:` — reachable by other services on the same network only (the ClusterIP default). Use for databases, internal APIs.
@@ -208,7 +280,12 @@ services:
 
 ## Validate
 
+**Pull the secrets first.** A top-level `secrets: file:` is resolved when the file is *parsed*, so
+on a fresh clone `docker compose config` fails with `no such file or directory` before anything
+runs. The order is always:
+
 ```bash
+task secrets:pull                     # or devbox shell entry — populates ./secrets/<block>/<key>
 docker compose config                 # parse + interpolate; catches schema and ${VAR} errors
 docker compose up -d
 docker compose ps                     # confirm State=running / healthy
@@ -217,6 +294,18 @@ docker compose down                   # add -v to also drop named volumes
 ```
 
 Wait for `healthy` before declaring success; a container can be `running` but not ready. Then confirm the secret landed: `docker compose exec app cat /var/run/secrets/db/password` should match Vault (don't paste the value into chat).
+
+Two failures worth checking for explicitly, because both hide on macOS and appear on Linux:
+
+- **Permission denied reading the secret.** Compose bind-mounts the secret file preserving the
+  host's ownership and mode — the long-syntax `uid`/`gid`/`mode` keys are swarm-only and are
+  ignored by `docker compose`. A `0600` file owned by your uid is unreadable to `65532`. The
+  `secrets` skill's `task secrets:pull` writes `0644` files inside a `0700` directory for exactly
+  this reason: the directory keeps other host users out, and the daemon (root) performs the bind
+  mount, so the container never traverses it. Docker Desktop's VirtioFS remaps ownership and hides
+  the bug, which is why it only ever bites on a Linux host or in CI. Fix the mode, never loosen
+  `user:`.
+- **Permission denied writing to the bind mount** — same cause, see *Hot reload* above.
 
 ## When compose vs skaffold
 

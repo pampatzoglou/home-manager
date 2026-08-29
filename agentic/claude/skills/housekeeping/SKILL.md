@@ -1,7 +1,6 @@
 ---
 name: housekeeping
 description: Stateful, idempotent repo sweep of a Kubernetes service repo. Applies companion skills in pass order (devbox/taskfile → dockerfile/compose → helm → kubernetes → argo/skaffold → github-actions → tidy → prune → document) and iterates until the repo converges. Writes .housekeeping/state.yaml breadcrumbs so re-runs skip completed items. Does not cover Terraform — run the terraform skill directly for IaC repos.
-user-invocable: true
 requires: [devbox, taskfile, dockerfile, docker-compose, helm, argo-applicationset, skaffold, kubernetes, secrets, github-actions, tidy, prune, document]
 ---
 
@@ -160,6 +159,11 @@ Apply the full `taskfile` skill completion checklist. The `action:env` naming co
 Skip entirely if the repo builds no image (a chart-only platform repo). Otherwise apply each
 skill's own success criteria; the items below are the ones that cross into later passes.
 
+**Load `secrets` before touching any `secrets:` block or `*_FILE` env** — here and in Pass 2. It
+owns the mount path and env convention that `p1.compose.secrets-from-files` below asserts, and
+that the chart's credential blocks must agree with. Compose and Helm each own only their syntax
+for it.
+
 | Item | Check | Auto-fix |
 |---|---|---|
 | `p1.dockerfile.exists` | `Dockerfile` present when the repo has application source | Flag — generating one needs the `dockerfile` skill's full analysis, not a template |
@@ -183,7 +187,7 @@ Goal: every chart in `deploy/charts/` meets the standards in the `helm` skill, `
 
 For each chart directory `<chart>` under `deploy/charts/`:
 
-**Load `helm` skill and apply its completion checklist.** Item IDs follow `p2.helm.<chart>.<section>.<check>`. The full checklist lives in `SKILL.md` (foundations) and `patterns.md` (patterns). Run every item in both.
+**Load `helm` skill and apply its completion checklist** — plus `secrets` for every credential block, since it owns the contract those blocks implement. Item IDs follow `p2.helm.<chart>.<section>.<check>`. The full checklist lives in `SKILL.md` (foundations) and `patterns.md` (patterns). Run every item in both.
 
 Critical items to verify explicitly (these are commonly missed):
 

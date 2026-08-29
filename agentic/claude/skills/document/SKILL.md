@@ -1,7 +1,6 @@
 ---
 name: document
 description: 'Analyze a repository and generate or update its documentation suite — README.md, docs/ARCHITECTURE.md (with embedded Mermaid diagrams), and any domain-specific docs (module READMEs for Terraform, chart READMEs for Helm, API docs for services). Interactive: analyzes first, presents findings, generates based on confirmed choices.'
-user-invocable: true
 ---
 
 # Document

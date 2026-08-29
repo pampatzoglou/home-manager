@@ -1,7 +1,6 @@
 ---
 name: tidy
 description: Hunt for mechanical inconsistencies — missing separators, empty template variables, trailing whitespace, inconsistent quoting, mixed indentation, and similar style drift across Helm, Terraform, YAML, Go, and Python.
-user-invocable: true
 ---
 
 # Tidy

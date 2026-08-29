@@ -1,7 +1,6 @@
 ---
 name: taskfile
 description: 'Standard Taskfile conventions across all projects. Covers the core principle (CI calls tasks not inline commands), standard task naming, the action:env convention, the variables pattern, and CI integration.'
-user-invocable: true
 ---
 
 # Taskfile

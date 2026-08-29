@@ -108,6 +108,11 @@ ssh-keygen -t ed25519-sk -O resident -O verify-required \
 # Export all resident keys from the YubiKey with stable names, then remove the generic files
 cd ~/.ssh && ssh-keygen -K
 
+# Remove the generic files left over from generation
+# CAUTION: name them explicitly — a glob like `rm id_ed25519_sk*` would also
+# delete the freshly exported `_sk_rk_` files
+rm ~/.ssh/id_ed25519_sk ~/.ssh/id_ed25519_sk.pub
+
 # Verify credentials on the YubiKey
 ykman fido credentials list
 ```
@@ -116,12 +121,36 @@ ykman fido credentials list
 
 Resident keys are stored on the YubiKey itself. On a new machine you do not re-generate — you export the existing credentials. The filenames produced are identical to those from the initial setup above.
 
+#### Prerequisites
+
 ```bash
-cd ~/.ssh && ssh-keygen -K
+# macOS: the bundled ssh-keygen cannot enumerate resident keys — install
+# upstream OpenSSH first and verify it is the one on PATH
+brew install openssh
+which ssh-keygen   # must be /opt/homebrew/bin/ssh-keygen, not /usr/bin/ssh-keygen
+
+# Fresh machines won't have ~/.ssh yet
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+```
+
+#### Export
+
+```bash
+cd ~/.ssh && $(brew --prefix openssh)/bin/ssh-keygen -K
+# Prompts, in order:
+#   1. FIDO PIN
+#   2. A touch on the YubiKey per credential
+#   3. An optional passphrase for each exported key handle file
+#
 # Writes all resident keys found on the YubiKey:
 #   id_ed25519_sk_rk_git_<username>      id_ed25519_sk_rk_git_<username>.pub
 #   id_ed25519_sk_rk_access_<username>   id_ed25519_sk_rk_access_<username>.pub
 ```
+
+No server-side changes are needed: the public keys are unchanged, so existing
+GitHub keys, `authorized_keys` entries, and allowed signers all keep working.
+Just recreate `~/.gitconfig`, `~/.config/git/work`, and `~/.ssh/config` from the
+templates in this document and you're done.
 
 ### How They're Used
 
@@ -164,11 +193,11 @@ This is why our git configuration uses explicit SSH commands with `-I` and disab
 
 ```ini
 [core]
-    sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_access_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
+    sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_git_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
 ```
 
 **Key flags explained:**
-- `-i ~/.ssh/id_ed25519_sk_rk_access_<username>`: Explicitly specify which key reference to use
+- `-i ~/.ssh/id_ed25519_sk_rk_git_<username>`: Explicitly specify which key reference to use
 - `-o IdentitiesOnly=yes`: Only use the specified key, ignore agent keys
 - `-o IdentityAgent=none`: Disable SSH agent entirely for this connection
 
@@ -241,7 +270,7 @@ gpg --expert --edit-key <KEY_ID>
 
 # For each subkey:
 #   addkey
-#   (6) RSA (set your own capabilities)
+#   (8) RSA (set your own capabilities)
 #   Toggle to the desired capability, then confirm
 #   Key size: 4096
 #   Expiry: 1y
@@ -390,7 +419,7 @@ pass git init
 pass git remote add origin <url>
 
 # Basic usage
-pass insert email/personal        # add a password
+pass insert email/personal         # add a password
 pass show email/personal           # decrypt and display
 pass generate web/example.com 32   # generate random password
 pass edit email/personal           # edit in $EDITOR

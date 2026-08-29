@@ -1,8 +1,6 @@
-{
-  config,
-  lib,
-  pkgs,
-  ...
+{ lib
+, pkgs
+, ...
 }:
 
 {
@@ -67,7 +65,8 @@
     enableScDaemon = true; # required for YubiKey OpenPGP applet
     enableZshIntegration = true;
 
-    pinentry.package = if pkgs.stdenv.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-curses;
+    pinentry.package =
+      if pkgs.stdenv.hostPlatform.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-curses;
 
     # Cache passphrases for 2 hours, max 4 hours
     defaultCacheTtl = 7200;

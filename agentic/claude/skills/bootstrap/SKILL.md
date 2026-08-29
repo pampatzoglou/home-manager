@@ -1,7 +1,6 @@
 ---
 name: bootstrap
 description: Scaffold a new project repository — directory structure, .gitignore, and sequenced skill invocation (devbox → taskfile → helm → ci → document). Handles single-service and multi-service monorepo layouts.
-user-invocable: true
 requires: [devbox, taskfile, helm, ci, document]
 ---
 

@@ -1,7 +1,6 @@
 ---
 name: helm
 description: Helm chart authoring — chart anatomy, values file layering (values.yaml → defaults/ → env/ → overlay), _helpers.tpl, template foundations, and local validation.
-user-invocable: true
 ---
 
 # Helm — Foundations
@@ -125,13 +124,13 @@ database:
   host: ""
   port: "5432"
   database: ""
-  user: "postgres"
+  username: "postgres"
   password: "postgres"
   mountPath: /var/run/secrets/db    # always mounted; files: .../db/<key>
   externalSecret:
     enable: false
     name: ""                 # name of a pre-existing Secret
-    userKey: username
+    usernameKey: username
     passwordKey: password
   vault:
     enable: false
@@ -141,7 +140,7 @@ database:
       version: v2
     resultType: Data    
     path: ""                 # Vault path — active when top-level vault.enable: true
-    userKey: username        # key name in the Vault-generated Secret
+    usernameKey: username        # key name in the Vault-generated Secret
     passwordKey: password
     refreshInterval: "1h"
 

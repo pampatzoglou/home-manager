@@ -1,7 +1,6 @@
 ---
 name: prune
 description: 'Find dead and unused code — unreferenced Helm values, unused Terraform variables/outputs/locals, orphaned files, commented-out blocks, and leftover scaffolding. Prioritises AI context bloat: verbose comments, duplicate docs, large auto-generated files, and anything that consumes tokens without informing understanding.'
-user-invocable: true
 ---
 
 # Prune

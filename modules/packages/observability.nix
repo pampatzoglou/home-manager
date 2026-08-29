@@ -14,7 +14,6 @@
     pghero
     go-migrate
     clickhouse-cli
-    kcat
     kafkactl
   ];
 }

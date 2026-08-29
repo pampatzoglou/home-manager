@@ -1,7 +1,6 @@
 ---
 name: skaffold
 description: Skaffold + kind for local development inner loop. Image sideloading to kind without a registry, canonical skaffold.yaml, devbox cluster scripts, and when skaffold is and isn't the right tool.
-user-invocable: true
 requires: [devbox, helm]
 ---
 

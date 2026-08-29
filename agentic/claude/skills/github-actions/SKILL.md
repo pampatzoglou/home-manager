@@ -1,7 +1,6 @@
 ---
 name: github-actions
 description: 'GitHub Actions CI that delegates all job logic to Taskfile tasks. Covers the core checkout + setup-tools + task pattern, the reusable setup-tools composite action and its version parity with devbox.json, SHA pinning, security hardening, OIDC auth, matrix strategies, environment protection, and workflow split (PR vs merge vs release). CI does not use devbox — that is the developer environment; CI installs the same pinned versions via setup actions.'
-user-invocable: true
 ---
 
 # GitHub Actions

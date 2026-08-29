@@ -1,7 +1,6 @@
 ---
 name: devbox
 description: 'Reproducible developer environments via pinned Nix packages. Covers .envrc setup with direnv, devbox.json structure, pinning strategy, and an init_hook that performs SSO login (when available) and pulls required dev secrets from Vault on shell entry. devbox.json is also the declared source of truth for tool versions that CI must match — CI itself does not run devbox.'
-user-invocable: true
 ---
 
 # Devbox
@@ -184,8 +183,8 @@ The `init_hook` runs on every shell entry and every `direnv` reload, so set up h
     "aws sts get-caller-identity --profile $AWS_PROFILE > /dev/null 2>&1 || aws sso login --profile $AWS_PROFILE",
     "vault token lookup > /dev/null 2>&1 || vault login -method=oidc role=developer > /dev/null",
     "creds=$(vault kv get -format=json secret/myapp/dev)",
-    "export DATABASE_USERNAME=$(printf '%s' \"$creds\" | jq -r '.data.data.username')",
-    "export DATABASE_PASSWORD=$(printf '%s' \"$creds\" | jq -r '.data.data.password')",
+    "export DB_USERNAME=$(printf '%s' \"$creds\" | jq -r '.data.data.username')",
+    "export DB_PASSWORD=$(printf '%s' \"$creds\" | jq -r '.data.data.password')",
     "unset creds"
   ],
   "scripts": {
@@ -202,6 +201,25 @@ The `init_hook` runs on every shell entry and every `direnv` reload, so set up h
 - **Don't let Vault outages block the shell.** Append `|| true` to the export lines (or guard the whole block) if you want shell entry to succeed even when Vault is down — the dependent task fails later with a clear error instead.
 - **`pre-commit install`** wires the repo's git hooks on first entry; it's a no-op when already installed.
 
+### Make the secret rules enforceable
+
+The `secrets` skill's "Never" list is policy; a hook is what stops a paste from becoming a commit.
+Since `pre-commit install` already runs on shell entry, the scanner costs one config block:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2                  # pin; renovate/dependabot bumps it
+    hooks:
+      - id: gitleaks
+```
+
+Add `gitleaks` to `packages` so the hook resolves from the devbox environment rather than the
+developer's machine. Run it in CI too (`task lint:secrets`) — a hook is skippable with
+`--no-verify`, a required check isn't. `gitleaks detect --log-opts="--all"` scans history when you
+inherit a repo and want to know what's already in there.
+
 Put the static config (`VAULT_ADDR`, region, default profile) in `shell.env` so the hook stays short:
 
 ```json
@@ -215,7 +233,7 @@ Put the static config (`VAULT_ADDR`, region, default profile) in `shell.env` so 
 
 ### Packages
 
-Add what the hook calls to `packages`: `vault`, `pre-commit`, and the cloud SSO CLI (`awscli2`, `google-cloud-sdk`, or `azure-cli`).
+Add what the hook calls to `packages`: `vault`, `pre-commit`, `gitleaks`, and the cloud SSO CLI (`awscli2`, `google-cloud-sdk`, or `azure-cli`).
 
 ### Keep it secure
 

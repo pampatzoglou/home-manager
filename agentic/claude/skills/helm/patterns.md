@@ -158,11 +158,18 @@ The Secret name (`{{ fullname }}-db`) is stable across all three modes — the m
 
 | Mode | Keys available as files |
 |---|---|
-| Chart-internal | `user`, `password` |
-| ExternalSecret | whatever keys the upstream store provides |
-| Vault dynamic | `database.vault.userKey`, `database.vault.passwordKey` (e.g. `username`, `password`) |
+| Chart-internal | `username`, `password` |
+| ExternalSecret | whatever keys the upstream store provides — map them to `username`/`password` |
+| Vault dynamic | `database.vault.usernameKey`, `database.vault.passwordKey` (both default to `username`/`password`) |
 
-Env vars (`secretKeyRef`) co-exist with the file mount. Applications reading from files can ignore env vars; applications reading env vars still have files available at the same path. Both point to the same underlying Secret.
+**The key names must be identical across all three modes**, or the mounted filename — and therefore
+the app's `DB_USERNAME_FILE` — changes with the credential source, which defeats the whole point of
+having three interchangeable modes. Vault's `database/creds/<role>` returns `username`, so that is
+the spelling everything else adopts.
+
+Env vars (`secretKeyRef`) co-exist with the file mount: the mount is unconditional, the env vars are
+added when the application reads env rather than files (the `secrets` skill, *Files always; env only
+where the code actually reads env*). Both resolve to the same key in the same Secret.
 
 ---
 
@@ -488,7 +495,7 @@ podLabels:
   owner: ""
 
 podSecurityContext:
-  fsGroup: 2000
+  fsGroup: 65532                 # = the Dockerfile's USER — see the `dockerfile` skill
   runAsNonRoot: true
   seccompProfile:
     type: RuntimeDefault
@@ -500,7 +507,8 @@ securityContext:
   readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
   runAsNonRoot: true
-  runAsUser: 1000
+  runAsUser: 65532               # never decided here; mirrors the image
+  runAsGroup: 65532
 ```
 ---
 

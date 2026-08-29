@@ -1,7 +1,9 @@
 {
   description = "Home Manager configuration";
 
-  # Enable cache for faster builds
+  # Enable cache for faster builds.
+  # NOTE: only honoured if the invoking user is in nix.conf `trusted-users`;
+  # otherwise Nix silently ignores these and falls back to cache.nixos.org.
   nixConfig = {
     extra-substituters = [ "https://nix-community.cachix.org" ];
     extra-trusted-public-keys = [

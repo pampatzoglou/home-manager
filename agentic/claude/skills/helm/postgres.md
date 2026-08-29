@@ -9,13 +9,13 @@ database:
   host: ""
   port: "5432"
   database: ""
-  user: "postgres"
+  username: "postgres"
   password: "postgres"
   mountPath: /var/run/secrets/db    # always mounted; files: .../db/<key>
   externalSecret:
     enable: false
     name: ""                        # name of a pre-existing Secret
-    userKey: username
+    usernameKey: username
     passwordKey: password
   vault:
     enable: false
@@ -25,7 +25,7 @@ database:
       version: v2
     resultType: Data
     path: ""                        # e.g. "database/creds/my-role"
-    userKey: username
+    usernameKey: username
     passwordKey: password
     refreshInterval: "1h"
 ```
@@ -49,7 +49,7 @@ metadata:
     {{- include "my-chart.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  user: {{ .Values.database.user | quote }}
+  username: {{ .Values.database.username | quote }}
   password: {{ .Values.database.password | quote }}
 {{- end }}
 {{- if and .Values.database.vault.enable .Values.database.vault.path }}
@@ -104,19 +104,24 @@ The VaultDynamicSecret and ExternalSecret render under a single `{{- if }}` guar
 
 ### env vars (secretKeyRef)
 
+Include this block **only when the application reads its credentials from the environment**; the
+file mount below is unconditional either way. `secretKeyRef` is the sanctioned way to do env
+injection — never a literal — and it must resolve to the same Secret key the file comes from. See
+the `secrets` skill, *Files always; env only where the code actually reads env*.
+
 ```gotmpl
-- name: DB_USER
+- name: DB_USERNAME
   valueFrom:
     secretKeyRef:
       {{- if .Values.database.vault.enable }}
       name: {{ include "my-chart.fullname" . }}-db
-      key: {{ .Values.database.vault.userKey }}
+      key: {{ .Values.database.vault.usernameKey }}
       {{- else if .Values.database.externalSecret.enable }}
       name: {{ .Values.database.externalSecret.name }}
-      key: {{ .Values.database.externalSecret.userKey }}
+      key: {{ .Values.database.externalSecret.usernameKey }}
       {{- else }}
       name: {{ include "my-chart.fullname" . }}-db
-      key: user
+      key: username
       {{- end }}
 - name: DB_PASSWORD
   valueFrom:
@@ -158,7 +163,7 @@ The Secret name (`{{ fullname }}-db`) is stable regardless of credential mode. K
 |---|---|
 | Chart-internal | `user`, `password` |
 | ExternalSecret | whatever the upstream store provides |
-| Vault dynamic | `database.vault.userKey`, `database.vault.passwordKey` |
+| Vault dynamic | `database.vault.usernameKey`, `database.vault.passwordKey` |
 
 ---
 
@@ -206,7 +211,7 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation
 type: Opaque
 stringData:
-  user: {{ .Values.database.admin.user | quote }}
+  username: {{ .Values.database.admin.username | quote }}
   password: {{ .Values.database.admin.password | quote }}
 {{- end }}
 ```

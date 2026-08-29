@@ -16,7 +16,9 @@ home-manager/
 │   └── claude/
 │       ├── CLAUDE.md                 # Personal coding preferences
 │       ├── settings.json.template    # Permission rules template
+│       ├── commands/                 # Auto-discovered /slash-command personas
 │       └── skills/                   # Auto-discovered skill directories
+│           ├── architecture/
 │           ├── argo-applicationset/
 │           ├── bootstrap/
 │           ├── ci/
@@ -32,7 +34,9 @@ home-manager/
 │           ├── kubernetes/
 │           ├── platform-review/
 │           ├── prune/
+│           ├── secrets/
 │           ├── skaffold/
+│           ├── tagging/
 │           ├── taskfile/
 │           ├── terraform/
 │           └── tidy/
@@ -50,6 +54,7 @@ Source files are automatically deployed to your home directory:
 |--------|-------------|---------|
 | `agentic/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | Personal coding preferences |
 | `agentic/claude/skills/*/` | `~/.claude/skills/*/` | Auto-discovered skill directories |
+| `agentic/claude/commands/*.md` | `~/.claude/commands/*.md` | Auto-discovered `/slash-command` personas |
 | `agentic/claude/settings.json.template` | _(manual merge)_ | Permission rules template |
 
 ## Configuration Files
@@ -90,6 +95,7 @@ Each skill is a directory under `agentic/claude/skills/` containing a `SKILL.md`
 
 | Skill | Purpose |
 |-------|---------|
+| `architecture` | System design — style catalog, boundary tests, data guarantees, trade-offs and ADRs |
 | `argo-applicationset` | ArgoCD ApplicationSet authoring |
 | `bootstrap` | Scaffold a new project repository |
 | `ci` | Interactive CI workflow generation (orchestrates github-actions + taskfile + devbox) |
@@ -105,7 +111,9 @@ Each skill is a directory under `agentic/claude/skills/` containing a `SKILL.md`
 | `kubernetes` | Kubernetes manifests, Helm, ArgoCD/GitOps |
 | `platform-review` | Review entry point; dispatches to the matching stack skills + built-in /code-review + /security-review, checks cross-stack seams |
 | `prune` | Find dead/unused code and AI context bloat |
+| `secrets` | Canonical secret-handling contract across the platform |
 | `skaffold` | Skaffold + kind local development loop |
+| `tagging` | Canonical metadata and tagging taxonomy across platforms |
 | `taskfile` | Standard Taskfile conventions |
 | `terraform` | Terraform/HCL review and planning |
 | `tidy` | Hunt for mechanical inconsistencies |

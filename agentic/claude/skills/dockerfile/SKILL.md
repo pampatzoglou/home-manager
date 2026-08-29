@@ -1,7 +1,6 @@
 ---
 name: dockerfile
 description: Generate a 4-stage Dockerfile (base → build → develop/production) and a matching .dockerignore. base installs OS deps; build installs dependencies and compiles, ordered for layer caching; develop (FROM build) adds hot-reload tooling for the docker-compose/skaffold inner loop; production uses distroless/slim with an explicit non-root user, --chown on all COPYs, declared VOLUME entries, and a digest-locked base image. Dev-side stages are architecture-agnostic.
-user-invocable: true
 ---
 
 # Generate Dockerfile
@@ -13,7 +12,7 @@ Generate a 4-stage Dockerfile and matching `.dockerignore` by analyzing the proj
 ```
                        ┌──► develop      (dev tooling + hot-reload CMD;
 base ──► build ────────┤                  used by docker-compose & skaffold)
-  │   (deps + compile,  └──► production   (distroless/slim, non-root, --chown,
+  │   (deps + compile, └──► production   (distroless/slim, non-root, --chown,
   │    cache-ordered)                      VOLUME, artifacts COPY --from=build)
   └─ OS deps, CA certs, WORKDIR
 ```
@@ -30,12 +29,12 @@ base ──► build ────────┤                  used by docker
 ## Non-negotiable rules
 
 1. **Verify before adding.** Read the actual source files and manifests before writing any instruction. Never assume a package is needed. Ask if uncertain.
-2. **Architecture-agnostic through `develop`.** `base`, `build`, and `develop` must build natively on any builder — an arm64 laptop and amd64 CI from the same Dockerfile. Use multi-arch official images, never hardcode `amd64`/`arm64`/`x86_64`, and detect arch dynamically (`TARGETARCH`, `uname -m`) for any binary download. Production keeps this property too, but is additionally locked — see rule 6.
+2. **Architecture-agnostic through `develop`.** `base`, `build`, and `develop` must build natively on any builder — an arm64 laptop and amd64 CI from the same Dockerfile. Use multi-arch official images, never hardcode `amd64`/`arm64`/`x86_64`, and detect arch dynamically (`TARGETARCH`, `uname -m`) for any binary download. For a compiled language, cross-compile from the native builder rather than emulating the target — see *Cross-compiling for multi-arch* in the build stage. Production keeps this property too, but is additionally locked — see rule 6.
 3. **No HEALTHCHECK.** Health endpoints are application-specific and cannot be verified from analysis. Users add their own.
 4. **Explicit non-root user in production.** On distroless (the default choice) use the built-in `nonroot` account and switch with numeric `USER 65532:65532`; on Alpine/Debian create an `app` user. Either way every production `COPY` carries `--chown` matching that exact uid, and `USER` comes before `CMD`. **The uid here is the single source of truth** — compose `user:` and the chart's `runAsUser`/`runAsGroup`/`fsGroup` mirror it, never the reverse.
 5. **Explicit COPY everywhere.** Never `COPY . .` in any stage — copy only what each stage needs.
 6. **Pin base images; lock production to a digest.** Never `:latest` — derive the version from project files. The `production` runtime base should be pinned by digest (`FROM …@sha256:…`), preferably the **multi-arch manifest-list digest** so it stays arch-agnostic (rule 2) while being immutable and reproducible. Dev-side stages (`base`/`build`/`develop`) can pin by tag for convenience; production is the one that gets pushed and deployed, so it gets the digest lock. Tags drift; digests don't.
-7. **Production is read-only; writable paths are `VOLUME`s.** The production image is built to run with a read-only root filesystem. Every directory the app writes to at runtime (`/tmp`, caches, work dirs) must be declared with `VOLUME` — that list is the contract the runtime mounts writable, and everything else stays immutable. **Enforced in production** (k8s `readOnlyRootFilesystem: true`); **recommended in dev** (compose `read_only: true`) so a missing path surfaces on a laptop, not in the cluster. See *Read-only root filesystem* below.
+7. **Production is read-only; writable paths are declared `VOLUME`s.** The production image is built to run with a read-only root filesystem. Every directory the app writes to at runtime (`/tmp`, caches, work dirs) must be declared with `VOLUME`. That list is a **breadcrumb for whoever writes the deployment** — it travels with the image, survives in `docker inspect`, and tells the chart author and the compose author exactly which writable mounts to create. No runtime reads it for you: Kubernetes ignores Dockerfile `VOLUME` outright, and Docker turns each one into an anonymous volume. Enforcement comes from `readOnlyRootFilesystem: true` plus explicit mounts; the `VOLUME` list is what makes those mounts reviewable instead of archaeological. Declare them anyway — see *Read-only root filesystem* below.
 
 ---
 
@@ -150,6 +149,48 @@ RUN <build-command>         # e.g. go build -o /app/server .  |  npm run build  
 - Install everything the compile needs here; build tools never reach the final image because `production` starts from a clean runtime base.
 - Emit a predictable artifact path (`/app/server`, `/app/dist`, a wheel) that both downstream stages consume.
 - With BuildKit, add `RUN --mount=type=cache,target=<pkg-cache>` for the package-manager/compiler cache (Go build cache, `~/.npm`, pip cache) to speed repeat builds further.
+
+#### Private dependency registries — build secrets, never layers
+
+A token needed to *install dependencies* is still a secret: `ARG NPM_TOKEN` lands in the image
+history, and an `ENV`/`COPY`-then-delete stays in the layer that added it. Use a BuildKit secret
+mount, which is present only for the lifetime of that `RUN` and never becomes a layer:
+
+```dockerfile
+# syntax=docker/dockerfile:1
+RUN --mount=type=secret,id=npm_token \
+    NPM_TOKEN="$(cat /run/secrets/npm_token)" npm ci --omit=dev
+```
+
+```bash
+docker build --secret id=npm_token,env=NPM_TOKEN .    # from the environment
+docker build --secret id=npm_token,src=./token .      # from a file
+```
+
+The `/run/secrets/<id>` above is BuildKit's own flat build-time mount and has nothing to do with
+the runtime layout at `/var/run/secrets/<block>/<key>` — different mechanism, different lifetime,
+and the built image contains neither.
+
+- **SSH-based Go/Git deps** use the agent mount instead: `RUN --mount=type=ssh git config --global url."git@github.com:".insteadOf "https://github.com/" && go mod download`, built with `docker build --ssh default`.
+- **In CI**, feed the secret from the OIDC-obtained short-lived token, not a long-lived PAT — the `github-actions` skill owns that wiring.
+- **Never** `ARG`/`ENV` a token, and never `COPY` a credential file into any stage. The `secrets` skill's "Never" list applies to build time as much as runtime.
+- Build secrets are for *fetching dependencies*. A runtime credential never enters the image at all — it arrives as a mounted file at `/var/run/secrets/<block>/<key>` (the `secrets` skill).
+
+#### Cross-compiling for multi-arch
+
+When production is built for more than one platform (`docker buildx build --platform linux/amd64,linux/arm64`), the naive Dockerfile runs the entire build stage under QEMU for the foreign arch — often 5–10× slower, and a frequent source of mysterious toolchain failures. For a compiled language, run the build stage **natively on the builder** and cross-compile to the target:
+
+```dockerfile
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS build
+ARG TARGETOS TARGETARCH          # provided automatically by BuildKit
+...
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /app/server .
+```
+
+- `BUILDPLATFORM` is the machine doing the build; `TARGETOS`/`TARGETARCH`/`TARGETPLATFORM` describe what is being built for. Declare the `ARG`s in each stage that uses them — they don't cross stage boundaries.
+- The `production` stage stays plain `FROM <runtime>@sha256:…` (no `--platform`): buildx selects the right arch from the manifest list per target, which is why rule 6 wants the manifest-list digest.
+- **Only for languages that cross-compile cleanly** — Go and Rust (with the target installed). For cgo, Python wheels with native extensions, or anything invoking a platform-specific toolchain, drop the `--platform=$BUILDPLATFORM` and let buildx emulate, or build each arch on a native runner and merge with `docker buildx imagetools create`.
+- `develop` and `base` remain plain `FROM` — they are built natively for the developer's own machine (rule 2), never cross-compiled.
 
 ### Stage 3 — `develop`
 
@@ -288,6 +329,31 @@ Use distroless unless the app requires a shell, a package manager, or system too
 
 The distroless `nonroot` uid 65532 aligns with `runAsUser: 65532` in the `kubernetes` skill's `resource-standards.md`. **The Dockerfile `USER` is the single source of truth for the UID** — the docker-compose `user:` and the chart's `runAsUser`/`runAsGroup`/`fsGroup` both mirror this exact value. Change it here, and update those in the same commit.
 
+**OCI labels — static in the Dockerfile, volatile from CI.**
+
+Three labels are properties of the image itself and belong in the `production` stage; everything
+that changes per build comes from CI via `--label`, because a value baked into the Dockerfile is a
+value that goes stale silently:
+
+```dockerfile
+LABEL org.opencontainers.image.title="my-service" \
+      org.opencontainers.image.source="https://github.com/org/my-service" \
+      org.opencontainers.image.licenses="Apache-2.0"
+```
+
+```bash
+# CI adds the rest from the build context — never hardcode these
+docker build \
+  --label org.opencontainers.image.version="$VERSION" \
+  --label org.opencontainers.image.revision="$GIT_SHA" \
+  --label org.opencontainers.image.created="$BUILD_TIME" .
+```
+
+The **`tagging` skill owns the label taxonomy** — which keys exist, what they mean, and the
+canonical `app`/`service`/`component`/`owner` set that pairs with the OCI ones. Don't invent label
+keys here. Never put `environment` on an image: the same digest is promoted across environments,
+so it isn't a property of the artifact.
+
 **Architecture-agnostic binary downloads** (when a binary must be fetched from a URL):
 ```dockerfile
 RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
@@ -300,7 +366,7 @@ Never hardcode `amd64`, `x86_64`, or `arm64` in a URL or path.
 
 ## Read-only root filesystem — the writable-paths contract
 
-Production runs with a **read-only root filesystem**. The only writable locations are the ones declared as `VOLUME` in the Dockerfile — that list is the single source of truth for "what this app needs to write," and every runtime consumes it identically:
+Production runs with a **read-only root filesystem**. The only writable locations are the ones declared as `VOLUME` in the Dockerfile — that list is the single source of truth for "what this app needs to write," and every runtime *mounts* it identically:
 
 | Declared in Dockerfile | docker-compose (dev) | Kubernetes (prod) |
 |---|---|---|
@@ -308,11 +374,22 @@ Production runs with a **read-only root filesystem**. The only writable location
 | `VOLUME ["/var/cache/app"]` | `tmpfs`/named volume | `emptyDir` / PVC |
 | rootfs itself | `read_only: true` | `securityContext.readOnlyRootFilesystem: true` |
 
+### What `VOLUME` does and doesn't do
+
+`VOLUME` is a **declaration, not a mechanism** — and it is still required. Being clear about the split avoids expecting enforcement from the wrong layer:
+
+- **It does not create the mount in Kubernetes.** The kubelet ignores Dockerfile `VOLUME` entirely; the chart must declare a matching `emptyDir` (or PVC) by hand. The `VOLUME` line is what tells the chart author which ones to write — and what a reviewer diffs the chart against.
+- **It does create an anonymous volume under plain Docker.** `docker run` (and compose, for any declared path with no explicit mount) allocates one per `VOLUME`. Consequences: it is writable even under `read_only: true`, so a *declared* path never surfaces a missing compose `tmpfs:`; and the volumes accumulate — use `docker run --rm` and `docker compose down -v` during validation.
+- **What it buys:** the writable-path contract travels with the image. `docker inspect --format '{{json .Config.Volumes}}' <image>` answers "what does this thing write?" without reading the source, months later, from a chart repo that doesn't contain the Dockerfile. That breadcrumb is the point — declare every writable path even though nothing reads the list automatically.
+- **What actually enforces it:** `readOnlyRootFilesystem: true` in the pod `securityContext` plus explicit mounts. An *undeclared* path fails there, loudly, which is the behaviour worth having.
+
+### Applying it
+
 - **Enforced in production.** The chart sets `readOnlyRootFilesystem: true` (see the `helm` skill's `defaults/values.yaml`) and mounts an `emptyDir` for each declared VOLUME. A write to an undeclared path crashes the container — that's the point: it forces every writable path to be explicit and reviewed.
-- **Recommended in dev.** Run `develop`/compose with `read_only: true` and the same paths mounted, so a missing VOLUME surfaces on a laptop, not in the cluster. Hot-reload tools that write belong on the bind-mounted source (kept writable); everything else stays read-only.
+- **Recommended in dev.** Run `develop`/compose with `read_only: true` and the same paths mounted, so a path the app writes but nobody declared surfaces on a laptop, not in the cluster. Hot-reload tools that write belong on the bind-mounted source (kept writable); everything else stays read-only.
 - **Find the paths in Step 1.7** — temp files, caches, framework scratch dirs, on-disk logs. Each becomes one `VOLUME`. Keep the set minimal: every writable mount is attack surface and state to manage. If the app can be told to write only to `/tmp`, prefer that over many scattered VOLUMEs.
 
-The payoff: dev and prod fail the same way. If a read-only rootfs breaks something, you hit it identically on compose and in k8s, and the fix is one `VOLUME` line that propagates to both.
+The payoff: dev and prod fail the same way. If a read-only rootfs breaks something, you hit it identically on compose and in k8s — and the fix is one reviewed change in three places that a reader can check against each other, starting from the `VOLUME` line.
 
 ---
 
@@ -334,11 +411,14 @@ The `.dockerignore` applies to the entire build context. Since stages use explic
 *.swo
 .DS_Store
 
-# Environment files — never let these into the build context
+# Environment files and local secret material — never let these into the context
 .env
 .env.*
 *.env
 .envrc
+secrets/                  # the `secrets` skill's local Vault pull lands here
+*.pem
+*.key
 !.env.example
 !.env.sample
 
@@ -545,6 +625,8 @@ Present the improved files with a summary:
 - [ ] No base image uses `:latest`; dev-side stages pinned by tag
 - [ ] `production` base image locked by digest (`@sha256:…`), preferably the multi-arch manifest list
 - [ ] No hardcoded `amd64`/`arm64`/`x86_64` anywhere; arch detected dynamically
+- [ ] If built multi-arch for a cross-compilable language: `FROM --platform=$BUILDPLATFORM` on `build` with `ARG TARGETOS TARGETARCH`, and no `--platform` on `production`
+- [ ] No credential reaches a layer: registry tokens via `RUN --mount=type=secret` / `--mount=type=ssh`, never `ARG`/`ENV`/`COPY`
 - [ ] No `COPY . .` in any stage — all COPYs are explicit
 - [ ] In `build`, dependency manifests copied and installed before source `COPY` (layer caching)
 - [ ] Production runs as an explicit non-root user: distroless → built-in `nonroot`, `USER 65532:65532`; Alpine/Debian → a created `app` user
@@ -557,11 +639,12 @@ Present the improved files with a summary:
 - [ ] CMD in exec form (`["executable", "arg"]`) — never shell form in production
 - [ ] No HEALTHCHECK
 - [ ] EXPOSE only if a port was verified in analysis
+- [ ] Static OCI labels (`title`, `source`, `licenses`) in `production`; volatile ones (`version`, `revision`, `created`) left to CI `--label`; no `environment` label
 - [ ] No debugging tools in production image
 
 ### .dockerignore checklist
 
-- [ ] Excludes `.env` and all secret file patterns
+- [ ] Excludes `.env`, `secrets/`, and all other local credential material
 - [ ] Excludes large generated directories (`node_modules`, `target/`, `dist/`, etc.)
 - [ ] Excludes local dev tooling (`devbox.json`, `Taskfile.yaml`, `skaffold.yaml`, `docker-compose*.yaml`)
 - [ ] Does not exclude directories the Dockerfile never copies
@@ -587,6 +670,8 @@ Once the Dockerfile and `.dockerignore` are done, check the repo and offer which
 
 | Skill | Offer when |
 |-------|-----------|
+| `secrets` | The build pulls from a private registry (needs `--mount=type=secret`), or the repo has a `secrets/` dir the `.dockerignore` must exclude |
+| `tagging` | The image ships no OCI labels, or CI doesn't pass `version`/`revision`/`created` |
 | `docker-compose` | No `docker-compose.yaml` — the develop stage is built to be consumed by a compose local loop |
 | `skaffold` | No `skaffold.yaml` — the develop stage exists specifically for skaffold/docker-compose local loops |
 | `devbox` | No `devbox.json` in the repo root |

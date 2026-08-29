@@ -10,7 +10,7 @@ tasks:
       - task --list
 
   fmt:
-    desc: Auto-format Nix files and remove unused declarations
+    desc: Auto-format Nix files and remove unused declarations (mutates — local use only)
     cmds:
       - nix run nixpkgs#deadnix -- --edit *.nix modules/
       - nix run nixpkgs#nixpkgs-fmt -- *.nix modules/
@@ -28,7 +28,7 @@ tasks:
         fi
 
   lint:
-    desc: Static analysis — deadnix and format checks
+    desc: Static analysis — deadnix, format checks, and skill contracts
     deps: [validate]
     cmds:
       - nix run nixpkgs#deadnix -- *.nix modules/
@@ -50,11 +50,12 @@ tasks:
         fi
 
   audit:
-    desc: Full pre-merge gate — fmt, validate, lint, scan
+    desc: Pre-merge gate — validate, lint, scan. Read-only, so CI fails on drift
+    # Deliberately does NOT call `fmt`: that mutates the tree, which in CI would
+    # reformat the checkout and then pass, hiding the very drift this gate exists
+    # to catch. `lint` runs nixpkgs-fmt --check instead. Run `task fmt` locally.
     cmds:
-      - task: fmt
-      - task: validate
-      - task: lint
+      - task: lint # deps: [validate]
       - task: scan
 
   clean:

@@ -1,7 +1,6 @@
 ---
 name: argo-applicationset
 description: Author ArgoCD ApplicationSets for service repos. Covers Go template syntax, matrix generators (apps × envs, apps × variants), values file layering, managedNamespaceMetadata labels, sync waves, singleton vs variant split, and the app-of-apps connection.
-user-invocable: true
 requires: [helm, kubernetes]
 ---
 
