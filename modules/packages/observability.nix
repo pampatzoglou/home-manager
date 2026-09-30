@@ -11,7 +11,6 @@
     # Database and messaging tools
     postgresql
     postgresql_jdbc
-    pghero
     go-migrate
     clickhouse-cli
     kafkactl

@@ -466,7 +466,6 @@ termshark -i eth0
 postgresql              # PostgreSQL client
 clickhouse-cli          # ClickHouse CLI
 go-migrate              # Database migrations
-pghero                  # PostgreSQL performance
 
 # Usage
 psql -U user -d database
