@@ -22,6 +22,8 @@
   programs.ssh = {
     enable = true;
     enableDefaultConfig = false;
+    # Per-host identities live in a plain, unmanaged file so they stay portable to non-Nix machines.
+    includes = [ "config.local" ];
 
     settings = {
       "*" = {
@@ -61,9 +63,16 @@
   # Linux: systemd socket activation / macOS: launchd agent
   services.gpg-agent = {
     enable = true;
-    enableSshSupport = false; # SSH uses FIDO keys, not GPG
+    # Left false so SSH_AUTH_SOCK isn't taken over: FIDO keys (PIN every use) stay the default.
+    # The ssh socket is still enabled below for the git key, which lives on the OpenPGP applet so
+    # its PIN is asked once per YubiKey insertion. Git opts in via `gpgconf --list-dirs
+    # agent-ssh-socket` in ~/.gitconfig.
+    enableSshSupport = false;
     enableScDaemon = true; # required for YubiKey OpenPGP applet
     enableZshIntegration = true;
+    extraConfig = ''
+      enable-ssh-support
+    '';
 
     pinentry.package =
       if pkgs.stdenv.hostPlatform.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-curses;
@@ -75,46 +84,6 @@
 
   # FIDO/YubiKey setup reminder
   home.activation.setupFidoKeys = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    echo ""
-    echo "=== FIDO/YubiKey Configuration ==="
-    echo ""
-    echo "✓ SSH configuration created with FIDO2 support"
-    echo ""
-    echo "⚠️  Manual FIDO key setup required:"
-    echo ""
-    echo "📦 Prerequisites (macOS):"
-    echo "  brew install openssh keychain  # macOS bundled OpenSSH doesn't support resident keys"
-    echo ""
-    echo "🔑 YubiKey Setup:"
-    echo "  # Reset FIDO application (⚠️  CAUTION: deletes all FIDO credentials)"
-    echo "  ykman fido reset"
-    echo ""
-    echo "  # Change PIN for security"
-    echo "  ykman fido access change-pin"
-    echo ""
-    echo "🔐 Generate Keys:"
-    echo "  # Personal SSH key (resident, requires touch)"
-    echo "  ssh-keygen -t ed25519-sk -O resident -O application=ssh:personal -O user=<username> -C \"<email>\""
-    echo ""
-    echo "  # Git signing key (no touch required for automation)"
-    echo "  ssh-keygen -t ed25519-sk -O no-touch-required -O application=ssh:git -O user=<username> -C \"<email>\""
-    echo ""
-    echo "  # Work SSH key (resident, requires touch)"
-    echo "  ssh-keygen -t ed25519-sk -O resident -O application=ssh:work -O user=<username> -C \"<email>\""
-    echo ""
-    echo "📋 Manage Keys:"
-    echo "  ykman fido credentials list  # List all credentials on YubiKey"
-    echo "  ssh-add -K                   # Load resident keys into SSH agent"
-    echo ""
-    echo "📚 See docs/DEVELOPER_IDENTITY.md for complete setup guide"
-    echo ""
-    echo "=== GPG/OpenPGP Configuration ==="
-    echo ""
-    echo "✓ GPG agent configured with YubiKey smartcard support"
-    echo "✓ Pinentry configured for passphrase entry"
-    echo ""
-    echo "⚠️  Manual GPG key setup required:"
-    echo "  See docs/DEVELOPER_IDENTITY.md for GPG key generation and YubiKey setup"
-    echo ""
+    echo "YubiKey/SSH/GPG keys are set up manually: see docs/DEVELOPER_IDENTITY.md"
   '';
 }

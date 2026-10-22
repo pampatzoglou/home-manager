@@ -1,472 +1,368 @@
-## 🔧 Git Customization
+# Developer Identity: Git, SSH and YubiKey
 
-Home-manager manages `~/.config/git/ignore` (global gitignore). All other git configuration is set manually so that identities can vary per organisation.
+How git signing, git push/pull and SSH access are set up with a YubiKey 5, and how to redo it
+(new YubiKey, new machine, or after a lockout).
 
-### Global Configuration
+## Design
 
-```ini
-# ~/.gitconfig
-[user]
-        name = <your-name>
-        email = <your-email@example.com>
-        signingkey = ~/.ssh/id_ed25519_sk_rk_git_<username>.pub
-[gpg]
-        format = ssh
-[commit]
-        gpgsign = true
-[tag]
-        gpgsign = true
-[core]
-        excludesFile = ~/.config/git/ignore
-        untrackedCache = true
-        sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_git_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
-[init]
-        defaultBranch = main
-[pull]
-        rebase = true
-[fetch]
-        prune = true
-[rerere]
-        enabled = true
-[diff]
-        colorMoved = zebra
-[log]
-        date = iso
-[rebase]
-        autosquash = true
-[push]
-        autoSetupRemote = true
-[includeIf "gitdir:~/Projects/work/"]
-        path = ~/.config/git/work
-```
+A YubiKey 5 has independent applets. Each key lives on the applet whose PIN behaviour fits it:
 
-### Per-Organisation Configuration
+| What you do | Key | Applet | PIN | Touch |
+|---|---|---|---|---|
+| Plug the YubiKey in | — | — | No | No |
+| First git push/pull/signed commit after plugging in | git | OpenPGP | **Once per insertion** | Yes |
+| Later git actions, key still plugged in | git | OpenPGP | No (cached until unplug) | Yes |
+| `ssh` to servers | access | FIDO2 | **Every connection** | Yes |
+| Website login with the key (GitHub, Google) | passkey | FIDO2 | Site decides | Yes |
 
-```ini
-# ~/.config/git/work
-[user]
-    name = Your Work Name
-    email = you@work.com
-    signingkey = ~/.ssh/id_ed25519_sk_rk_git_<username>.pub
-[gpg]
-    format = ssh
-[core]
-    sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_git_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
-```
+### Key inventory
 
-## 🔐 FIDO Key Setup
+| Key | Applet | File / ID | Used for | PIN | Touch |
+|---|---|---|---|---|---|
+| access | FIDO2 `ssh:access_<username>` | `~/.ssh/id_ed25519_sk_rk_access_<username>` | `ssh` to servers | Every use | Every use |
+| git (auth subkey `[A]`, ed25519) | OpenPGP | `~/.ssh/id_gpg_git_<username>.pub` | git push/pull **and** commit/tag signing (SSH format) | Once per insertion | Every use |
+| sign subkey `[S]`, ed25519 | OpenPGP | primary key `<KEY_ID>` | native GPG signatures (`gpg --sign`); not used by git | Once per insertion | Every use |
+| encrypt subkey `[E]`, cv25519 | OpenPGP | `<ENC_KEY_ID>` | GPG encryption/decryption | Once per insertion | No |
+| website passkeys | FIDO2 | on the YubiKey only | Login to GitHub, Google, … | Site decides | Every use |
 
-This configuration assumes you have a YubiKey or compatible FIDO security key for enhanced SSH authentication. The setup uses two resident FIDO keys: a git key (PIN only, no touch) for commit/tag signing and git push, and an access key (PIN + touch) for SSH connections.
+At a glance:
 
-### Assumptions
+| Requires | Keys |
+|---|---|
+| **PIN + touch every time** | access |
+| **PIN once per insertion, then touch only** | git `[A]`, sign `[S]` |
+| **PIN once per insertion, no touch** | encrypt `[E]` (add `ykman openpgp keys set-touch enc on` to change) |
+| **Touch, PIN up to the site** | website passkeys |
+| **Neither** | plugging the key in |
 
-- You have a YubiKey 5 or later with FIDO2 support
-- YubiKey Manager (`ykman`) is installed
-- You want resident keys for portability across devices
+Git signs with the `[A]` key, not `[S]`: with `gpg.format = ssh`, git signs through gpg-agent's
+SSH socket, which only exposes the authentication key. One PIN entry after plugging in covers all
+OpenPGP keys; unplugging (or sleep / another smart-card app) clears it.
 
-- **Mac specific**: The OpenSSH bundled with macOS cannot work with resident keys due to a compilation flag (`--disable-security-key`). Install the upstream OpenSSH via Homebrew:
-```bash
-brew install openssh keychain
-```
+- FIDO2 has no "unlock once" mode: a key either needs the PIN on every use (`verify-required`) or
+  never. OpenPGP (via gpg-agent/scdaemon) keeps the card unlocked until it is removed, which is
+  why the git key lives there.
+- FIDO2 PIN and OpenPGP PIN are separate (they can be set to the same value).
+- Git uses SSH-format signatures (`gpg.format = ssh`) in both cases, so GitHub only needs SSH keys.
 
-### YubiKey Initialization
+### What home-manager does vs. what stays manual
 
-Run these steps once per YubiKey before generating any keys.
+| Piece | Where | Managed by |
+|---|---|---|
+| PATH order (Nix + Homebrew before `/usr/bin`) | `modules/zsh.nix` `initContent` | home-manager |
+| gpg-agent with `enable-ssh-support` (SSH_AUTH_SOCK untouched) | `modules/security.nix` | home-manager |
+| `~/.ssh/config` base + `Include config.local` | `modules/security.nix` | home-manager |
+| Per-host SSH identities | `~/.ssh/config.local` | manual (portable) |
+| Git identity and signing | `~/.gitconfig`, `~/.config/git/*` | manual (portable) |
+| Git signing helper | `~/.config/git/gpg-ssh-keygen` | manual (portable) |
 
-```bash
-# Verify the key is detected and note the serial number for your records
-ykman info
+Git and SSH identity files are kept out of home-manager on purpose so they can be copied to
+machines without Nix.
 
-# Reset the FIDO2 application
-# CAUTION: deletes ALL FIDO2 credentials and clears the PIN
-# You must physically touch the key when prompted to confirm
-ykman fido reset
+## Prerequisites
 
-# Set the FIDO2 PIN
-# This PIN gates all verify-required key operations (signing and access)
-# Minimum 4 characters; 8+ alphanumeric recommended
-ykman fido access change-pin
+- YubiKey 5 (FIDO2 + OpenPGP), plugged **directly** into the machine. Some hubs/docks don't pass
+  it through at all (see Troubleshooting).
+- `ykman`, `gpg`, `pinentry-mac` (installed by home-manager).
+- **macOS:** Apple's OpenSSH is built without FIDO support. Install upstream OpenSSH and make sure
+  it wins on PATH:
 
-# Verify the PIN is configured
-ykman fido info
-```
-> **Lockout:** FIDO2 has no PUK. After 8 consecutive wrong PIN attempts the application locks permanently and requires `ykman fido reset` (losing all credentials). Store the PIN securely.
-
-### Key Generation
-
-Generate resident FIDO keys, then export them all at once via `ssh-keygen -K` to get stable, auto-named key handle files. The `_rk_` names produced by `ssh-keygen -K` are the canonical paths referenced everywhere (gitconfig, ssh config) — identical whether on the original machine or recovering on a new one.
-
-```bash
-# Git key — PIN required, no touch (git commit/tag signing and git push)
-ssh-keygen -t ed25519-sk -O resident -O verify-required -O no-touch-required \
-           -O application=ssh:git -O user=<username> -C "<email>"
-
-# Access key — PIN + touch required (SSH connections)
-ssh-keygen -t ed25519-sk -O resident -O verify-required \
-           -O application=ssh:access -O user=<username> -C "<email>"
-           
-# Export all resident keys from the YubiKey with stable names, then remove the generic files
-cd ~/.ssh && ssh-keygen -K
-
-# Remove the generic files left over from generation
-# CAUTION: name them explicitly — a glob like `rm id_ed25519_sk*` would also
-# delete the freshly exported `_sk_rk_` files
-rm ~/.ssh/id_ed25519_sk ~/.ssh/id_ed25519_sk.pub
-
-# Verify credentials on the YubiKey
-ykman fido credentials list
-```
-
-### Recovering Keys on a New Device
-
-Resident keys are stored on the YubiKey itself. On a new machine you do not re-generate — you export the existing credentials. The filenames produced are identical to those from the initial setup above.
-
-#### Prerequisites
-
-```bash
-# macOS: the bundled ssh-keygen cannot enumerate resident keys — install
-# upstream OpenSSH first and verify it is the one on PATH
+```sh
 brew install openssh
-which ssh-keygen   # must be /opt/homebrew/bin/ssh-keygen, not /usr/bin/ssh-keygen
-
-# Fresh machines won't have ~/.ssh yet
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
+which ssh-keygen   # must be /opt/homebrew/bin/ssh-keygen
 ```
 
-#### Export
+Check the key is detected and note its model/serial:
 
-```bash
-cd ~/.ssh && $(brew --prefix openssh)/bin/ssh-keygen -K
-# Prompts, in order:
-#   1. FIDO PIN
-#   2. A touch on the YubiKey per credential
-#   3. An optional passphrase for each exported key handle file
-#
-# Writes all resident keys found on the YubiKey:
-#   id_ed25519_sk_rk_git_<username>      id_ed25519_sk_rk_git_<username>.pub
-#   id_ed25519_sk_rk_access_<username>   id_ed25519_sk_rk_access_<username>.pub
+```sh
+ykman list
 ```
 
-No server-side changes are needed: the public keys are unchanged, so existing
-GitHub keys, `authorized_keys` entries, and allowed signers all keep working.
-Just recreate `~/.gitconfig`, `~/.config/git/work`, and `~/.ssh/config` from the
-templates in this document and you're done.
+---
 
-### How They're Used
+## Part 1: FIDO2 access key (PIN + touch every connection)
 
-| Key | Application | Touch | PIN | Purpose |
-|-----|-------------|-------|-----|---------|
-| Git | `ssh:git` | No | Yes | Git commit/tag signing and git push |
-| Access | `ssh:access` | Yes | Yes | SSH connections |
+### 1.1 Set the FIDO2 PIN (once per YubiKey)
 
-Resident keys are stored on the YubiKey and recoverable on any machine via `ssh-keygen -K`.
-
-The SSH configuration in `modules/security.nix` is pre-configured to use these keys with appropriate security policies.
-
-### 📚 Lessons Learned: Working with Resident Keys
-
-**Important:** Resident keys stored on FIDO devices (like YubiKeys) are **intermediate references** to the actual cryptographic material on the hardware token, not standalone private keys.
-
-#### SSH Agent Limitations
-
-**The Problem:**
-Loading resident keys directly into your SSH agent doesn't work reliably because:
-
-1. The key file (e.g., `~/.ssh/id_ed25519_sk_rk_access_<username>`) is just a reference handle to the FIDO device
-2. The actual signing operation must communicate with the physical security key
-3. SSH agent caching can interfere with the FIDO authentication flow
-
-**The Solution:**
-You must explicitly specify the key file using the `-I` flag when connecting:
-
-```bash
-# ❌ WRONG - Relying on agent alone
-ssh git@github.com
-
-# ✅ CORRECT - Explicitly specify the key
-ssh -i ~/.ssh/id_ed25519_sk_rk_access_<username> git@github.com
+```sh
+ykman fido info                # "PIN: Not set" on a fresh key
+ykman fido access change-pin
 ```
 
-#### Git Configuration Implications
+> **Lockout:** FIDO2 has no PUK. 8 wrong PINs lock it; the only fix is `ykman fido reset`, which
+> erases all FIDO2 credentials, **including website passkeys**.
 
-This is why our git configuration uses explicit SSH commands with `-I` and disables the agent:
+### 1.2 Generate the key
 
-```ini
-[core]
-    sshCommand = ssh -i ~/.ssh/id_ed25519_sk_rk_git_<username> -o IdentitiesOnly=yes -o IdentityAgent=none
+```sh
+ssh-keygen -t ed25519-sk -O resident -O verify-required -O application=ssh:access_<username> \
+  -C "access_<username>@yubikey-<serial>" -f ~/.ssh/id_ed25519_sk_rk_access_<username>
 ```
 
-**Key flags explained:**
-- `-i ~/.ssh/id_ed25519_sk_rk_git_<username>`: Explicitly specify which key reference to use
-- `-o IdentitiesOnly=yes`: Only use the specified key, ignore agent keys
-- `-o IdentityAgent=none`: Disable SSH agent entirely for this connection
+- Press Enter for no passphrase: the file is only a handle, the key never leaves the YubiKey.
+- Re-running with the same `application=` replaces the old credential on the YubiKey.
+- Drop `-O verify-required` for touch-only (no PIN).
 
-This ensures Git always communicates directly with the FIDO device through the key reference file, triggering the proper authentication flow (touch requirement, PIN if needed, etc.).
+### 1.3 SSH config (keep it out of the agent)
 
-#### SSH Config Pattern
-
-Apply the same pattern in your `~/.ssh/config` for reliable FIDO key usage:
+An agent can't ask for the FIDO PIN, so a `verify-required` key loaded into an agent fails with
+`agent refused operation`. In `~/.ssh/config.local`:
 
 ```ssh
-Host github.com
-    User git
-    IdentityFile ~/.ssh/id_ed25519_sk_rk_access_<username>
-    IdentitiesOnly yes
-    IdentityAgent none
-
-Host *.work.com
-    User <username>
-    IdentityFile ~/.ssh/id_ed25519_sk_rk_access_<username>
-    IdentitiesOnly yes
-    IdentityAgent none
+Host <server>
+  User <username>
+  IdentityFile ~/.ssh/id_ed25519_sk_rk_access_<username>
+  IdentitiesOnly yes
+  IdentityAgent none
+  AddKeysToAgent no
+  # Optional: one PIN per 10 minutes instead of per connection
+  # ControlMaster auto
+  # ControlPath ~/.ssh/cm-%C
+  # ControlPersist 10m
 ```
 
-**TL;DR:** Always use `-i` (IdentityFile) with resident keys and disable the agent (`IdentityAgent=none`) to ensure proper FIDO device communication.
+`config.local` is included before the home-manager `Host *` block, so its values win.
 
-## GPG/OpenPGP Setup
+### 1.4 Register and test
 
-### Overview
+Add `~/.ssh/id_ed25519_sk_rk_access_<username>.pub` to the server's `~/.ssh/authorized_keys`,
+then:
 
-A YubiKey 5 has multiple independent applets:
-
-| Applet | Purpose | Managed By |
-|--------|---------|------------|
-| FIDO2 | SSH authentication, git signing | `ssh-keygen`, `ssh-agent` |
-| OpenPGP | GPG encryption, signing, `pass` | `gpg`, `gpg-agent`, `scdaemon` |
-
-These applets do not share keys or interfere with each other. The FIDO setup above handles SSH. This section covers the OpenPGP applet for GPG and `pass`.
-
-Home-manager configures `gpg`, `gpg-agent`, and `scdaemon` automatically via `modules/security.nix`. The steps below cover key generation and YubiKey provisioning, which must be done manually.
-
-### GPG Master Key Generation
-
-Generate a certify-only master key. This key stays offline after subkeys are created — it is only used to issue and revoke subkeys.
-
-> Do this on a trusted machine. For maximum security, use an air-gapped machine or a live USB.
-
-```bash
-# Generate master key (Certify only)
-gpg --full-generate-key --expert
-
-# When prompted:
-#   Key type: (8) RSA (set your own capabilities)
-#   Toggle off Sign, Encrypt, keep only Certify
-#   Key size: 4096
-#   Expiry: 2y (can be extended later without re-provisioning YubiKeys)
-#   Real name: <your-name>
-#   Email: <your-email>
-#   Passphrase: strong, unique passphrase (store securely)
-
-# Note your key ID
-gpg --list-keys --keyid-format 0xlong
+```sh
+ssh <server>      # FIDO PIN, touch
 ```
 
-### Subkey Creation
+Test locally without a server:
 
-Add three subkeys for sign, encrypt, and authenticate. These are the keys that will live on the YubiKey.
-
-```bash
-gpg --expert --edit-key <KEY_ID>
-
-# For each subkey:
-#   addkey
-#   (8) RSA (set your own capabilities)
-#   Toggle to the desired capability, then confirm
-#   Key size: 4096
-#   Expiry: 1y
-
-# Create these three subkeys:
-#   1. Sign only (S)
-#   2. Encrypt only (E)
-#   3. Authenticate only (A)
-
-# Save
-save
+```sh
+cd "$(mktemp -d)" && echo test > msg
+ssh-keygen -Y sign -f ~/.ssh/id_ed25519_sk_rk_access_<username> -n test msg
+echo "me $(cat ~/.ssh/id_ed25519_sk_rk_access_<username>.pub)" > signers
+ssh-keygen -Y verify -f signers -I me -n test -s msg.sig < msg   # Good "test" signature
 ```
 
-After creation, verify:
-```bash
-gpg --list-keys --keyid-format 0xlong <KEY_ID>
-# Should show:
-#   pub   rsa4096/0x... [C]        (master, certify only)
-#   sub   rsa4096/0x... [S]        (sign)
-#   sub   rsa4096/0x... [E]        (encrypt)
-#   sub   rsa4096/0x... [A]        (authenticate)
+---
+
+## Part 2: OpenPGP git key (PIN once per insertion, touch every use)
+
+### 2.1 Start clean (optional)
+
+If the OpenPGP applet has no keys you need, or a PIN is locked:
+
+```sh
+ykman openpgp reset   # erases OpenPGP only; FIDO2 is untouched
 ```
 
-### Backup Procedures
+Defaults after reset: PIN `123456`, admin PIN `12345678`.
 
-Back up keys **before** moving them to the YubiKey. `keytocard` is destructive — it removes the local copy.
+### 2.2 Change the PINs
 
-```bash
-# Export master key (store offline, encrypted USB or similar)
-gpg --export-secret-keys --armor <KEY_ID> > master-key-backup.asc
-
-# Export subkeys separately
-gpg --export-secret-subkeys --armor <KEY_ID> > subkeys-backup.asc
-
-# Export public key (safe to distribute)
-gpg --export --armor <KEY_ID> > public-key.asc
-
-# Create paperkey backup (compact printable format for offline storage)
-gpg --export-secret-keys <KEY_ID> | paperkey --output paperkey-backup.txt
-
-# Generate revocation certificate
-gpg --gen-revoke --armor <KEY_ID> > revocation-cert.asc
+```sh
+ykman openpgp access change-pin          # user PIN (asked once per insertion)
+ykman openpgp access change-admin-pin    # admin PIN (card management only)
 ```
 
-Store backups on an encrypted USB drive. Print the paperkey output and store it in a safe. The revocation certificate should be stored separately from the key backups.
+> **Lockout:** 3 wrong user PINs lock it (the admin PIN can unblock:
+> `ykman openpgp access unblock-pin`). 3 wrong admin PINs → `ykman openpgp reset`.
+> When gpg prompts, read the title: **"Admin PIN"** vs plain **"PIN"**.
 
-### Moving Subkeys to YubiKey
+### 2.3 Generate ed25519 keys on the card
 
-#### Prepare the YubiKey OpenPGP Applet
-
-```bash
-# Check that the OpenPGP applet is detected
-gpg --card-status
-
-# Set OpenPGP PINs (different from FIDO PIN)
+```sh
 gpg --card-edit
-# admin
-# passwd
-#   1 - Change PIN (default: 123456, set to 6+ digits)
-#   3 - Change Admin PIN (default: 12345678, set to 8+ digits)
-#   q
-# quit
 ```
 
-> **Lockout:** 3 wrong PIN attempts locks the card. Use the Admin PIN to unlock. 3 wrong Admin PIN attempts bricks the OpenPGP applet (requires `ykman openpgp reset`).
-
-#### Transfer Subkeys
-
-```bash
-gpg --edit-key <KEY_ID>
-
-# Move signing subkey
-key 1
-keytocard
-# Select: (1) Signature key
-key 1
-
-# Move encryption subkey
-key 2
-keytocard
-# Select: (2) Encryption key
-key 2
-
-# Move authentication subkey
-key 3
-keytocard
-# Select: (3) Authentication key
-
-save
+```
+admin
+key-attr      # 3 times: (2) ECC → (1) Curve 25519   → ed25519 / cv25519 / ed25519
+generate      # off-card backup: n (see 2.7) · expiry: 0 · name · email · O
+quit
 ```
 
-After transfer, `gpg --list-secret-keys` will show `ssb>` for each subkey, indicating the key is on the card (not local).
+`key-attr` only sets the slot types; nothing exists until `generate`. Check:
 
-### Sharing Identity Across Multiple YubiKeys
-
-To use the same GPG identity on a second (or third) YubiKey, you need to re-import the subkeys from backup and transfer them again.
-
-```bash
-# 1. Delete the local key stubs (pointing to first YubiKey)
-gpg --delete-secret-keys <KEY_ID>
-# Confirm deletion
-
-# 2. Re-import subkeys from backup
-gpg --import subkeys-backup.asc
-
-# 3. Prepare the second YubiKey
-#    Insert the second YubiKey
-gpg --card-status
-gpg --card-edit
-# admin -> passwd -> set PIN and Admin PIN -> quit
-
-# 4. Transfer subkeys to second YubiKey (same procedure as above)
-gpg --edit-key <KEY_ID>
-# key 1 -> keytocard -> (1) Signature key -> key 1
-# key 2 -> keytocard -> (2) Encryption key -> key 2
-# key 3 -> keytocard -> (3) Authentication key
-# save
-
-# 5. Repeat steps 1-4 for additional YubiKeys
+```sh
+gpg --card-status | grep -E 'Key attributes|Signature key|Authentication key|PIN retry'
 ```
 
-#### Switching Between YubiKeys
+All three slots should show fingerprints. Note the new primary key ID:
 
-GPG stubs reference a specific card serial number. When you switch to a different YubiKey with the same keys, you need to update the stubs:
-
-```bash
-# Delete stale stubs
-gpg-connect-agent "scd serialno" "learn --force" /bye
-
-# Or if that doesn't work:
-gpg --delete-secret-keys <KEY_ID>
-gpg --card-status
-# This re-creates stubs pointing to the currently inserted card
+```sh
+gpg -K --keyid-format 0xlong <email>    # the one with "sec>" and "Card serial no."
 ```
 
-### Configuring pass
+### 2.4 Require touch
 
-`pass` uses GPG for encryption. After setting up your GPG key on a YubiKey:
-
-```bash
-# Initialize the password store with your GPG key
-pass init <KEY_ID>
-
-# Enable git tracking (optional but recommended)
-pass git init
-pass git remote add origin <url>
-
-# Basic usage
-pass insert email/personal         # add a password
-pass show email/personal           # decrypt and display
-pass generate web/example.com 32   # generate random password
-pass edit email/personal           # edit in $EDITOR
-pass rm old/entry                  # remove an entry
-
-# Sync across machines
-pass git push
-pass git pull
+```sh
+ykman openpgp keys set-touch aut on
+ykman openpgp keys set-touch sig on
 ```
 
-### Recovering on a New Machine
+### 2.5 Export the SSH public key
 
-After running `home-manager switch --flake . --impure`, GPG tools and agent are already configured. You just need your keys:
+Export **by key ID**, not email: with more than one key for the same email, gpg picks the wrong
+one.
 
-```bash
-# Import your public key
-gpg --import public-key.asc
-
-# Insert YubiKey — this fetches the secret key stubs from the card
-gpg --card-status
-
-# Trust your own key
-gpg --edit-key <KEY_ID>
-# trust -> 5 (ultimate) -> quit
-
-# Verify
-gpg --list-secret-keys
-# Should show:
-#   sec#  rsa4096 [C]        (master key, stub — not on card or local)
-#   ssb>  rsa4096 [S]        (signing subkey, on card)
-#   ssb>  rsa4096 [E]        (encryption subkey, on card)
-#   ssb>  rsa4096 [A]        (authentication subkey, on card)
-
-# Clone your password store
-git clone <pass-repo-url> ~/.password-store
-# or: pass git clone <url>
-
-# Verify pass works
-pass show email/personal
+```sh
+gpg --export-ssh-key <KEY_ID> > ~/.ssh/id_gpg_git_<username>.pub
+SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)" ssh-add -L \
+  | grep -F "$(cut -d' ' -f2 ~/.ssh/id_gpg_git_<username>.pub)"     # must print one line
 ```
 
-### Complete Key Inventory
+### 2.6 Register on GitHub
 
-| Applet | Key Type | Touch | PIN | Purpose |
-|--------|----------|-------|-----|---------|
-| FIDO2 | ed25519-sk (`ssh:git`) | No | Yes | Git SSH signing and push |
-| FIDO2 | ed25519-sk (`ssh:access`) | Yes | Yes | SSH connections |
-| OpenPGP | RSA 4096 [S] | Optional | Yes | GPG signing |
-| OpenPGP | RSA 4096 [E] | Optional | Yes | Encryption / `pass` |
-| OpenPGP | RSA 4096 [A] | Optional | Yes | GPG authentication |
+```sh
+pbcopy < ~/.ssh/id_gpg_git_<username>.pub
+```
+
+At https://github.com/settings/ssh/new add it **twice**: once as **Authentication Key**, once as
+**Signing Key**.
+
+### 2.7 Git config
+
+Signing helper `~/.config/git/gpg-ssh-keygen` (`chmod 755`):
+
+```sh
+#!/bin/sh
+# git's gpg.ssh.program: sign through gpg-agent so the git key on the YubiKey's OpenPGP applet is
+# used (PIN once per insertion, touch per signature). Plain ssh-keygen + gpgconf keeps it portable.
+SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)" exec ssh-keygen "$@"
+```
+
+`~/.gitconfig`:
+
+```ini
+[user]
+	name = <name>
+	email = <email>
+	signingkey = ~/.ssh/id_gpg_git_<username>.pub
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	program = ~/.config/git/gpg-ssh-keygen
+[commit]
+	gpgsign = true
+[tag]
+	gpgsign = true
+[core]
+	excludesFile = ~/.config/git/ignore
+	sshCommand = ssh -i ~/.ssh/id_gpg_git_<username>.pub -o IdentitiesOnly=yes -o IdentityAgent=\"$(gpgconf --list-dirs agent-ssh-socket)\"
+[includeIf "gitdir:~/Projects/<org>/"]
+	path = ~/.config/git/<org>
+```
+
+`sshCommand` goes through a shell, so `$(gpgconf ...)` resolves the socket on macOS and Linux.
+`~` in `gpg.ssh.program` is expanded by recent git (verified on 2.55); on an old git use an
+absolute path.
+Per-organisation overrides (`~/.config/git/<org>`) can set their own `user.*`, `signingkey` and
+`sshCommand`.
+
+### 2.8 Test
+
+```sh
+ssh -i ~/.ssh/id_gpg_git_<username>.pub -o IdentitiesOnly=yes \
+  -o IdentityAgent="$(gpgconf --list-dirs agent-ssh-socket)" -T git@github.com
+# 1st run: pinentry PIN + touch → "Hi <username>!"   2nd run: touch only
+
+cd "$(mktemp -d)" && git init -q && git commit --allow-empty -m "sign test" \
+  && git cat-file -p HEAD | grep -c 'BEGIN SSH SIGNATURE'    # 1 = signed
+```
+
+### 2.9 What to back up
+
+Keys generated on the card **cannot be exported or backed up**. If the YubiKey dies, a new one
+gets new keys, registered on GitHub alongside the old ones. Keep the old *signing* key registered
+on GitHub so past commits stay Verified.
+
+Store offline (password manager / encrypted USB), then delete local copies of secrets:
+
+| Item | How |
+|---|---|
+| Public key | `gpg --export --armor <KEY_ID> > pub.asc` |
+| Revocation certificate | `~/.gnupg/openpgp-revocs.d/<FINGERPRINT>.rev` |
+| Encryption key backup (only if you said yes in `generate`) | `~/.gnupg/sk_<ENC_KEY_ID>.gpg` → delete after copying |
+| SSH public keys | `~/.ssh/id_gpg_git_<username>.pub`, `~/.ssh/id_ed25519_sk_rk_access_<username>.pub` |
+| PINs | FIDO2 PIN, OpenPGP PIN, OpenPGP admin PIN |
+
+If you need the **same** key on several YubiKeys, or a full backup (e.g. for encryption/`pass`),
+generate the keys off-card instead — see [Alternative: off-card keys](#alternative-off-card-keys).
+
+---
+
+## Part 3: Clean up after replacing a key
+
+```sh
+ykman fido credentials list            # FIDO PIN
+ykman fido credentials delete <id>     # remove ssh:* entries no longer used
+```
+
+Never delete website passkeys (`github.com`, `google.com`, …) unless you mean to.
+
+- GitHub (https://github.com/settings/keys): delete old **authentication** keys; keep old
+  **signing** keys. Compare fingerprints with `ssh-keygen -lf <file>.pub`.
+- https://github.com/settings/security and other accounts: remove a lost/dead YubiKey under
+  Security keys / Passkeys.
+- `~/.ssh`: remove handle files of deleted keys.
+
+---
+
+## New machine
+
+1. `home-manager switch` (PATH, gpg-agent, ssh base config).
+2. Copy `~/.gitconfig`, `~/.config/git/*`, `~/.ssh/config.local`.
+3. FIDO2 access key: `cd ~/.ssh && ssh-keygen -K` (PIN + touch), rename the exported file to
+   `id_ed25519_sk_rk_access_<username>` if needed.
+4. OpenPGP git key:
+
+```sh
+gpg --import pub.asc
+gpg --card-status                              # links the card to the key
+gpg --export-ssh-key <KEY_ID> > ~/.ssh/id_gpg_git_<username>.pub
+```
+
+No GitHub or server changes are needed: the public keys are the same.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `ykman: No YubiKey detected` and `ioreg -p IOUSB -w0` shows nothing | Not enumerated at USB level: hub/dock/adapter or cable. Plug in directly. On Apple Silicon, also check System Settings → Privacy & Security → Allow accessories to connect. |
+| `No FIDO SecurityKeyProvider specified` | Apple's `/usr/bin/ssh-keygen` ran. Fix PATH (`which ssh-keygen`), or open a new shell after `home-manager switch`. |
+| `agent refused operation` with an `-sk` key | Key was loaded into an agent that can't prompt for the PIN. `ssh-add -d <key>.pub`; use `IdentityAgent none` + `AddKeysToAgent no` for that host. |
+| `Credential Management requires having a PIN` | FIDO2 PIN not set: `ykman fido access change-pin`. |
+| OpenPGP `PIN retry counter : 0 …` | User PIN locked. `ykman openpgp access unblock-pin` (admin PIN) or `ykman openpgp reset`. |
+| Touching the key types `cccccc…` | Yubico OTP. Harmless (one-time). Disable if unused: `ykman config usb --disable OTP`. |
+| PIN asked again while still plugged in | Sleep, `ykman`, or another smart-card app reset the card session. Expected. |
+| `gpg --export-ssh-key <email>` exports the wrong key | Several keys share the email. Export by key ID. |
+
+Inspect a FIDO SSH handle's flags (touch / PIN-every-use) without the key: the private handle
+file stores them; `0x01` = touch, `0x04` = verify-required, `0x20` = resident.
+
+---
+
+## Alternative: off-card keys
+
+Use this when you need a full backup, the same identity on several YubiKeys, or encryption that
+must survive losing a card (e.g. `pass`). The private keys exist on a computer briefly, so use a
+trusted, ideally offline, machine.
+
+```sh
+gpg --expert --full-generate-key                 # (11) ECC, Certify only, ed25519
+gpg --expert --edit-key <KEY_ID>                 # addkey ×3: sign (ed25519), encrypt (cv25519),
+                                                 # authenticate (ed25519); save
+gpg --export-secret-keys --armor <KEY_ID> > master.asc      # offline backup
+gpg --export-secret-subkeys --armor <KEY_ID> > subkeys.asc
+gpg --gen-revoke --armor <KEY_ID> > revoke.asc
+
+gpg --edit-key <KEY_ID>                          # key 1 → keytocard → (1); key 1
+                                                 # key 2 → keytocard → (2); key 2
+                                                 # key 3 → keytocard → (3); save
+```
+
+`keytocard` removes the local copy. For a second YubiKey: delete the stubs
+(`gpg --delete-secret-keys <KEY_ID>`), `gpg --import subkeys.asc`, repeat `keytocard`. Switching
+cards: `gpg-connect-agent "scd serialno" "learn --force" /bye`.
+
+Then continue from [2.4](#24-require-touch).

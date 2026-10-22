@@ -141,6 +141,20 @@
     };
 
     initContent = ''
+            # /etc/zprofile's path_helper moves the system dirs (/usr/bin, ...) ahead of what
+            # .zshenv added, and non-login shells inherit that order. Re-prepend in .zshrc so
+            # every interactive shell prefers Nix and Homebrew over Apple's tools (e.g. Homebrew's
+            # FIDO-capable ssh/ssh-keygen). `typeset -U` drops the later duplicates.
+            typeset -U path
+            path=(
+              "$HOME/.local/bin"
+              "$HOME/.nix-profile/bin"
+              /nix/var/nix/profiles/default/bin
+              /opt/homebrew/bin
+              /opt/homebrew/sbin
+              $path
+            )
+
             # Auto-load SSH keys
             if [[ -z "$SSH_AUTH_SOCK" || ! -S "$SSH_AUTH_SOCK" ]]; then
                 eval "$(ssh-agent -s)" >/dev/null
