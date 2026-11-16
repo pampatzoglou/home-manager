@@ -15,11 +15,9 @@ This is a Nix-based home-manager configuration for managing user environment dec
 
 ```
 .
-├── agentic/              # Agentic AI configurations (Claude, skills, etc.)
+├── agentic/              # Agentic AI configurations
 │   └── claude/           # Claude-specific files
-│       ├── CLAUDE.md     # Personal coding preferences
-│       ├── skills/       # Reusable skills
-│       └── settings.json.template
+│       └── CLAUDE.md     # Personal coding preferences (skills come from mentor plugins)
 ├── modules/              # Home-manager modules
 │   ├── packages.nix      # Package installations
 │   ├── zsh.nix          # Shell configuration

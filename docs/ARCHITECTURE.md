@@ -34,7 +34,7 @@ graph TB
         kubernetes.nix`"]
         ai["`**AI Assistant**
         claude.nix
-        Auto-discovered skills`"]
+        Personal preferences`"]
         sys["`**System Integration**
         kitty.nix`"]
     end
@@ -186,7 +186,7 @@ graph LR
 
     subgraph "🤖 AI Assistant"
         claude["`**claude.nix**
-        • Auto-discovered skills
+        • Skills via mentor plugins
         • Personal preferences
         • Methodology-focused`"]
     end

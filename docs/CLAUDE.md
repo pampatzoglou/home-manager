@@ -6,7 +6,7 @@ This documentation covers the setup, usage, and maintenance of Claude AI Assista
 
 ## Overview
 
-The Claude configuration provides a declarative, version-controlled approach to managing AI assistant preferences, coding styles, and reusable skills. All configurations are deployed automatically via Nix home-manager.
+The Claude configuration provides a declarative, version-controlled approach to managing AI assistant preferences and coding styles, deployed via Nix home-manager. Skills and personas are provided by Claude Code plugins (see below).
 
 ## Directory Structure
 
@@ -14,48 +14,19 @@ The Claude configuration provides a declarative, version-controlled approach to 
 home-manager/
 ├── agentic/
 │   └── claude/
-│       ├── CLAUDE.md                 # Personal coding preferences
-│       ├── settings.json.template    # Permission rules template
-│       ├── commands/                 # Auto-discovered /slash-command personas
-│       └── skills/                   # Auto-discovered skill directories
-│           ├── architecture/
-│           ├── argo-applicationset/
-│           ├── bootstrap/
-│           ├── ci/
-│           ├── debugging/
-│           ├── devbox/
-│           ├── docker-compose/
-│           ├── dockerfile/
-│           ├── document/
-│           ├── git/
-│           ├── github-actions/
-│           ├── helm/
-│           ├── housekeeping/
-│           ├── kubernetes/
-│           ├── platform-review/
-│           ├── prune/
-│           ├── secrets/
-│           ├── skaffold/
-│           ├── tagging/
-│           ├── taskfile/
-│           ├── terraform/
-│           └── tidy/
+│       └── CLAUDE.md                 # Personal coding preferences
 ├── .claude/
 │   └── CLAUDE.md                     # Project-specific conventions
 └── modules/
-    └── claude.nix                    # Auto-discovery deployment module
+    └── claude.nix                    # Deployment module
 ```
 
 ## Deployment Mapping
 
-Source files are automatically deployed to your home directory:
-
 | Source | Deployed To | Purpose |
 |--------|-------------|---------|
 | `agentic/claude/CLAUDE.md` | `~/.claude/CLAUDE.md` | Personal coding preferences |
-| `agentic/claude/skills/*/` | `~/.claude/skills/*/` | Auto-discovered skill directories |
-| `agentic/claude/commands/*.md` | `~/.claude/commands/*.md` | Auto-discovered `/slash-command` personas |
-| `agentic/claude/settings.json.template` | _(manual merge)_ | Permission rules template |
+| _(mentor plugins)_ | `~/.claude/plugins/` | Skills and persona slash commands |
 
 ## Configuration Files
 
@@ -85,90 +56,27 @@ Contains your personal coding style, language preferences, and communication sty
 - **Indentation**: 2 spaces for Nix/YAML/JSON, 4 for Python
 ```
 
-### skills/ - Reusable Methodologies
+### Skills and Personas - Provided by Plugins
 
-Markdown files or directories containing structured approaches to common development tasks. These are reference documents that Claude can use to perform tasks consistently.
+Skills and persona slash commands are **not** deployed from this repo. They come from two
+Claude Code plugins in the [mentor](https://github.com/pampatzoglou/mentor) marketplace:
 
-Each skill is a directory under `agentic/claude/skills/` containing a `SKILL.md` entry point and any supporting files. All directories are auto-discovered and deployed recursively.
+| Plugin | Provides | Invoked as |
+|--------|----------|------------|
+| `mentor@mentor` | Skills (terraform, kubernetes, helm, debugging, ...) | `/mentor:<skill>` |
+| `personas@mentor` | Persona slash commands (architect, sre, staff, ...) | `/personas:<name>` |
 
-**Current Skills:**
-
-| Skill | Purpose |
-|-------|---------|
-| `architecture` | System design — style catalog, boundary tests, data guarantees, trade-offs and ADRs |
-| `argo-applicationset` | ArgoCD ApplicationSet authoring |
-| `bootstrap` | Scaffold a new project repository |
-| `ci` | Interactive CI workflow generation (orchestrates github-actions + taskfile + devbox) |
-| `debugging` | Systematic 6-step debugging methodology |
-| `devbox` | Reproducible dev environments via Nix |
-| `docker-compose` | Local-dev compose file with Kubernetes-parity volumes & file secrets |
-| `dockerfile` | 4-stage Dockerfile generation (base → build → develop/production) |
-| `document` | Generate and update documentation suites |
-| `git` | Conventional commit messages and PR overview descriptions |
-| `github-actions` | GitHub Actions CI via Taskfile + devbox |
-| `helm` | Helm chart authoring and values layering |
-| `housekeeping` | Stateful multi-pass repo sweep across all companion skills |
-| `kubernetes` | Kubernetes manifests, Helm, ArgoCD/GitOps |
-| `platform-review` | Review entry point; dispatches to the matching stack skills + built-in /code-review + /security-review, checks cross-stack seams |
-| `prune` | Find dead/unused code and AI context bloat |
-| `secrets` | Canonical secret-handling contract across the platform |
-| `skaffold` | Skaffold + kind local development loop |
-| `tagging` | Canonical metadata and tagging taxonomy across platforms |
-| `taskfile` | Standard Taskfile conventions |
-| `terraform` | Terraform/HCL review and planning |
-| `tidy` | Hunt for mechanical inconsistencies |
-
-### settings.json.template - Permission Rules
-
-Template showing recommended structure for Claude's global settings including:
-- Permission rules (auto-approve, require approval, never allow)
-- Command allowlists
-- File type permissions
-- Preferences (verbose mode, file size limits, excluded directories)
-- Hook integrations
-
-**Note:** This is a template only. Your actual `~/.claude/settings.json` already exists with hooks configuration. Manual merge is required to preserve existing settings.
-
-## Auto-Discovery System
-
-The `modules/claude.nix` module automatically discovers and deploys all `.md` files and directories from `agentic/claude/skills/`:
-
-### How It Works
-
-1. `modules/claude.nix` reads all non-hidden directories in `agentic/claude/skills/`
-2. Each directory is deployed recursively to `~/.claude/skills/<name>/`
-3. Symlinks point into the Nix store — atomic, rollback-capable, immutable
+Install on a new machine:
 
 ```
-skills/terraform/     → ~/.claude/skills/terraform/
-  ├── SKILL.md
-  └── Taskfile.yml
+/plugin marketplace add pampatzoglou/mentor
+/plugin install mentor@mentor
+/plugin install personas@mentor
 ```
 
-Files must be git-tracked (or staged) for Nix flakes to see them.
-
+Enablement is stored in `~/.claude/settings.json`, which this repo does not manage. To change a
+skill, edit it in the mentor repo and update the plugin.
 ## Usage
-
-### Adding New Skills
-
-Skills are automatically discovered - no module editing required!
-
-```bash
-mkdir agentic/claude/skills/my-skill
-vim agentic/claude/skills/my-skill/SKILL.md
-git add agentic/claude/skills/my-skill/
-task switch
-ls ~/.claude/skills/my-skill/
-```
-
-Files must be git-tracked or staged before running `task switch`.
-
-### Editing Existing Skills
-
-```bash
-vim agentic/claude/skills/debugging/SKILL.md
-task switch
-```
 
 ### Updating Personal Preferences
 
@@ -179,17 +87,8 @@ task switch
 
 ### Updating Settings
 
-The `settings.json` is **not** automatically deployed to avoid overwriting existing hooks:
-
-```bash
-# 1. Review template
-cat agentic/claude/settings.json.template
-
-# 2. Manually merge desired changes into existing file
-vim ~/.claude/settings.json
-
-# 3. No deployment needed (file is manually managed)
-```
+`~/.claude/settings.json` is **not** managed by this repo; edit it directly. It also holds the
+plugin enablement for the mentor plugins.
 
 ## Project-Specific Configuration
 
@@ -208,81 +107,14 @@ This file documents:
 
 **Use Case:** Claude can reference this for project-specific context when working on home-manager code.
 
-## Skill Development Guidelines
-
-When creating new skills, follow these best practices:
-
-### Structure
-- **Clear Purpose**: Define what the skill is for
-- **Structured Format**: Use headings, lists, checklists, or steps
-- **Actionable**: Make it easy for Claude to follow
-- **Comprehensive**: Cover edge cases and common pitfalls
-- **Context-Aware**: Include technology-specific tips
-
-### Format
-
-```markdown
-# Skill Name
-
-## Purpose
-Brief description of what this skill does and when to use it.
-
-## Methodology
-Step-by-step approach or structured process.
-
-### Step 1: Action
-- Specific actions to take
-- Things to check
-- Commands to run
-
-### Step 2: Next Action
-- More specific steps
-- Examples when helpful
-
-## Checklist
-- [ ] Item to verify
-- [ ] Another checkpoint
-
-## Best Practices
-- Key principle 1
-- Key principle 2
-
-## Common Pitfalls
-- What to avoid
-- How to prevent issues
-```
-
-### Content Guidelines
-
-1. **Be Specific**: Provide concrete examples and commands
-2. **Be General**: Avoid over-fitting to one project/use case
-3. **Be Practical**: Focus on real-world scenarios
-4. **Be Complete**: Cover the full workflow, not just fragments
-5. **Be Maintainable**: Keep skills focused and updateable
-
 ## Troubleshooting
 
-### Skills Not Deploying
+### Skills Appear Twice
 
-**Problem:** New skill file not appearing in `~/.claude/skills/`
+**Problem:** The same skill is listed both unprefixed and as `mentor:<name>`
 
-**Solution:**
-```bash
-# Check if file is tracked in git
-git status agentic/claude/skills/
-
-# If untracked, stage it
-git add agentic/claude/skills/your-skill/
-
-# Rebuild
-task switch
-
-# Verify
-ls -la ~/.claude/skills/
-```
-
-**Explanation:** Nix flakes only see tracked or staged files in git. Untracked files are invisible.
-
+**Solution:** A stale copy exists in `~/.claude/skills/` or `~/.claude/commands/`. This repo no
+longer deploys anything there; remove hand-placed leftovers manually.
 ### Symlink Issues
 
 **Problem:** Files are symlinks to Nix store instead of regular files
@@ -307,7 +139,7 @@ The symlinks work transparently - applications read them as normal files.
 The deployment will still work. Commit changes when ready:
 ```bash
 git add -A
-git commit -m "Update Claude skills"
+git commit -m "docs: update Claude preferences"
 ```
 
 ### Flake Attribute Error
@@ -334,31 +166,16 @@ task switch
 
 ## Maintenance
 
-### Regular Updates
-
-Keep skills current with your evolving practices:
-
-```bash
-# Review and update skills quarterly
-vim agentic/claude/skills/terraform/SKILL.md
-
-# Deploy changes
-task switch
-```
-
 ### Version Control
-
-All Claude configuration is in git:
 
 ```bash
 # View history of changes
 git log -- agentic/claude/
+```
 
-# See what changed in a skill
-git diff agentic/claude/skills/kubernetes/
-
-# Revert a change
-git checkout HEAD~1 -- agentic/claude/skills/debugging/
+Skill and persona history lives in the [mentor](https://github.com/pampatzoglou/mentor) repo.
+The copies that used to live here are in this repo's git history under
+`agentic/claude/skills/` and `agentic/claude/commands/`.
 ```
 
 ### Backup and Restore
@@ -389,63 +206,14 @@ agentic/
 
 Add new directories as needed and create corresponding modules.
 
-### Environment-Specific Skills
-
-For different environments (work vs personal):
-
-```bash
-# Use git includeIf or separate skills directories
-agentic/claude/skills/work/
-agentic/claude/skills/personal/
-```
-
-Modify `modules/claude.nix` to selectively include based on environment variables.
-
-### Skill Templates
-
-Create skill templates for consistency:
-
-```bash
-# Create template
-cat > agentic/claude/skills/_template.md << 'EOF'
-# Skill Name
-
-## Purpose
-What this skill does.
-
-## Methodology
-How to use it.
-
-## Best Practices
-Key principles.
-EOF
-
-# Use as starting point for new skills
-cp agentic/claude/skills/_template.md agentic/claude/skills/new-skill.md
-```
-
 ## Integration with Claude
 
 ### How Claude Uses These Files
 
 1. **CLAUDE.md**: Read at conversation start to understand your preferences
-2. **Skills**: Referenced when performing specific tasks (code review, debugging, etc.)
-3. **Settings**: Govern permissions and behavior globally
-
-### Referencing Skills
-
-You can explicitly reference skills in conversations:
-
-```
-"Please review this code using the platform-review skill"
-"Debug this issue following the debugging methodology"
-"Set up this infrastructure following the kubernetes skill"
-```
-
-### Contextual Usage
-
-Claude may automatically apply relevant skills based on the task:
-- Code review → `platform-review`
+2. **Skills** (from the `mentor` plugin): Applied when a task matches, or invoked as `/mentor:<skill>`
+3. **Personas** (from the `personas` plugin): Invoked as `/personas:<name>`
+4. **Settings**: Govern permissions and behavior globally
 - Infrastructure work → `terraform` or `kubernetes`
 - Troubleshooting → `debugging`
 
@@ -454,18 +222,11 @@ Claude may automatically apply relevant skills based on the task:
 - [Claude Documentation](https://www.anthropic.com/claude)
 - [Home Manager Manual](https://nix-community.github.io/home-manager/)
 - [Nix Language Basics](https://nixos.org/manual/nix/stable/language/)
-- [Agentic Directory README](../agentic/README.md)
-- [Claude Module README](../agentic/claude/README.md)
-
 ## Summary
 
 The Claude AI Assistant configuration provides:
 
-- ✅ **Declarative Configuration**: Version-controlled AI preferences
-- ✅ **Auto-Discovery**: Automatic skill deployment
-- ✅ **Reproducible**: Same setup across all machines
-- ✅ **Maintainable**: Edit markdown, not code
-- ✅ **Portable**: Share with team or other projects
-- ✅ **Scalable**: Add unlimited skills easily
-
+- ✅ **Declarative Preferences**: Version-controlled `CLAUDE.md`
+- ✅ **Single Skill Source**: Skills and personas come from the `mentor` plugins, not this repo
+- ✅ **Reproducible**: Same preferences across all machines
 All managed through the same home-manager workflow you use for packages and dotfiles.

@@ -1,11 +1,14 @@
-{ ... }:
+{ pkgs, ... }:
 
 {
   programs.kitty = {
     enable = true;
 
     font = {
-      name = "JetBrainsMono Nerd Font";
+      # Installed here so kitty does not fall back to Menlo when the font is absent
+      package = pkgs.nerd-fonts.jetbrains-mono;
+      # kitty only lists the monospace variant; the plain family name is not found
+      name = "JetBrainsMono Nerd Font Mono";
       size = 13;
     };
 

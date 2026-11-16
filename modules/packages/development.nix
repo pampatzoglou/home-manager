@@ -66,7 +66,9 @@
     postman
     newman
     mdr
-    localstack
+    # Disabled: depends on python-jose 3.5.0, marked insecure (CVE-2026-120459).
+    # Re-enable once nixpkgs ships a fixed python-jose.
+    # localstack
     jetbrains.datagrip
     # jetbrains.goland
   ];

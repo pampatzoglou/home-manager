@@ -42,15 +42,15 @@ home-manager switch --switch-generation <number>
 
 ## 🤖 Claude AI Skills
 
-```bash
-# Add a new skill
-mkdir agentic/claude/skills/my-skill
-vim agentic/claude/skills/my-skill/SKILL.md
-git add agentic/claude/skills/my-skill/
-task switch
+Skills and personas come from the `mentor` and `personas` Claude Code plugins, not this repo:
+
+```
+/plugin marketplace add pampatzoglou/mentor
+/plugin install mentor@mentor
+/plugin install personas@mentor
 ```
 
-See [README.md](../README.md#-ai-assistant-configuration) for the full skills list and [docs/CLAUDE.md](./CLAUDE.md) for detailed skill management.
+See [docs/CLAUDE.md](./CLAUDE.md) for details.
 
 ## 📦 Package Management
 
@@ -126,18 +126,6 @@ git add -A
 git commit -m "Your message"
 ```
 
-#### Skills Not Deploying
-**Problem:** File not tracked in git
-
-**Solution:**
-```bash
-# Stage the file
-git add agentic/claude/skills/new-skill.md
-
-# Deploy
-home-manager switch --flake . --impure
-```
-
 ### Debug Mode
 ```bash
 # Verbose output
@@ -204,8 +192,6 @@ git status
 # Diff specific file
 git diff modules/claude.nix
 
-# View skill changes
-git diff agentic/claude/skills/
 ```
 
 ## 🔍 Inspection
@@ -227,8 +213,6 @@ nix eval .#homeConfigurations.$(whoami).config.programs.zsh.enable --impure
 # Check Claude files
 ls -la ~/.claude/
 
-# Check skills
-ls -la ~/.claude/skills/
 
 # Follow symlinks
 readlink ~/.claude/CLAUDE.md
@@ -278,8 +262,6 @@ cd ~/.config/home-manager && home-manager switch --flake . --impure
 # Update and deploy
 cd ~/.config/home-manager && nix flake update && home-manager switch --flake . --impure
 
-# Add skill and deploy
-git add agentic/claude/skills/*.md && home-manager switch --flake . --impure
 
 # Emergency rollback
 home-manager generations && home-manager switch --switch-generation $(home-manager generations | sed -n '2p' | awk '{print $5}')

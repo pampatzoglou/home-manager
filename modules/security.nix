@@ -1,4 +1,5 @@
-{ lib
+{ config
+, lib
 , pkgs
 , ...
 }:
@@ -80,6 +81,23 @@
     # Cache passphrases for 2 hours, max 4 hours
     defaultCacheTtl = 7200;
     maxCacheTtl = 14400;
+  };
+
+  # The upstream launchd agent runs `gpg-agent --supervised`, which needs systemd-style socket
+  # passing (LISTEN_FDS) that launchd doesn't provide, so it exits 2 in a loop. gpg/git-signing
+  # still work because gpg autostarts its own agent, but ssh never does, leaving
+  # S.gpg-agent.ssh missing after login and git push/clone failing. Instead, launch the
+  # self-daemonizing agent at login so it creates its own sockets, ssh included. launchd SIGTERMs
+  # the job's process group once the job exits, so the agent must be abandoned to survive.
+  launchd.agents.gpg-agent.config = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+    ProgramArguments = lib.mkForce [
+      "${config.programs.gpg.package}/bin/gpgconf"
+      "--launch"
+      "gpg-agent"
+    ];
+    RunAtLoad = lib.mkForce true;
+    AbandonProcessGroup = true;
+    Sockets = lib.mkForce { };
   };
 
   # FIDO/YubiKey setup reminder

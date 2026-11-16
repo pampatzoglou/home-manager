@@ -29,7 +29,7 @@ This project is a reboot of the original [workstation provisioning](https://gith
 
 ### 🤖 AI Assistant Configuration
 
-- **Claude Skills** - Auto-discovered reusable skills for common development tasks
+- **Claude Skills** - Provided by the `mentor` and `personas` Claude Code plugins
 - **Personal Preferences** - Coding style, language preferences, and workflows
 - **Methodology-Focused** - General best practices for Terraform, Kubernetes, Infrastructure
 - **Git-Managed** - All AI configurations version-controlled and reproducible
@@ -76,7 +76,7 @@ graph LR
 > 📖 **Detailed Architecture**: See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for comprehensive diagrams and technical details
 > 🛠️ **Tools Reference**: See [TOOLS.md](./docs/TOOLS.md) for complete tool documentation and usage examples
 > 🔑 **Developer Identity**: See [DEVELOPER_IDENTITY.md](./docs/DEVELOPER_IDENTITY.md) for Git identity, SSH, and FIDO key setup
-> 🤖 **AI Assistant Setup**: See [agentic/README.md](./agentic/README.md) for Claude configuration and skills
+> 🤖 **AI Assistant Setup**: See [docs/CLAUDE.md](./docs/CLAUDE.md) for Claude configuration and skills
 
 ## 🚀 Quick Start
 
@@ -196,7 +196,7 @@ This configuration consists of the following active modules:
 | `security.nix` | Security configs | GPG, SSH, direnv with hardening |
 | `kitty.nix` | Terminal | Solarized Dark theme, fonts, keybindings |
 | `kubernetes.nix` | K8s configuration | Kubectl plugins, krew automation |
-| `claude.nix` | AI assistant config | Auto-discovered skills, personal preferences |
+| `claude.nix` | AI assistant config | Personal preferences (skills come from plugins) |
 | `gc.nix` | Garbage collection | Automatic cleanup of old generations |
 
 ## 📝 License
@@ -211,33 +211,11 @@ This configuration is provided as-is for educational and personal use. Feel free
 
 ## 🤖 AI Assistant Configuration
 
-This configuration includes a comprehensive setup for Claude AI Assistant with auto-discovered skills and personal preferences.
+This configuration deploys personal preferences for Claude AI Assistant. Skills and personas come from the
+`mentor` and `personas` Claude Code plugins ([pampatzoglou/mentor](https://github.com/pampatzoglou/mentor)).
 
-See [docs/CLAUDE.md](./docs/CLAUDE.md) for directory structure, skill management, and deployment details.
+See [docs/CLAUDE.md](./docs/CLAUDE.md) for directory structure and deployment details.
 
-### Available Skills
-
-- **argo-applicationset** - ArgoCD ApplicationSet authoring
-- **bootstrap** - Scaffold a new project repository
-- **ci** - Interactive CI workflow generation (orchestrates github-actions + taskfile + devbox)
-- **debugging** - Systematic 6-step debugging methodology
-- **devbox** - Reproducible dev environments via Nix
-- **docker-compose** - Local-dev compose file with Kubernetes-parity volumes & file secrets
-- **dockerfile** - 4-stage Dockerfile generation (base → build → develop/production)
-- **document** - Generate and update documentation suites
-- **git** - Conventional commit messages and PR overview descriptions
-- **github-actions** - GitHub Actions CI via Taskfile + devbox
-- **helm** - Helm chart authoring and values layering
-- **housekeeping** - Stateful multi-pass repo sweep across all companion skills
-- **kubernetes** - Kubernetes manifests, Helm, ArgoCD/GitOps
-- **platform-review** - Review entry point; dispatches to the matching stack skills + built-in /code-review + /security-review, checks cross-stack seams
-- **prune** - Find dead/unused code and AI context bloat (redundant docs, verbose comments, duplicate files)
-- **skaffold** - Skaffold + kind local development loop
-- **taskfile** - Standard Taskfile conventions
-- **terraform** - Terraform/HCL review and planning
-- **tidy** - Hunt for mechanical inconsistencies (missing separators, empty vars, whitespace drift)
-
-For detailed documentation, see [agentic/README.md](./agentic/README.md).
 
 ---
 
